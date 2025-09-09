@@ -1,4 +1,3 @@
-// app/orders/new/page.tsx
 import { listProducts, listServices } from '@/lib/actions/catalog';
 import { createOrder } from '@/lib/actions/orders';
 import OrderForm from './OrderForm'; // 👈 клиентский компонент
@@ -9,5 +8,7 @@ export default async function Page() {
     listServices(),
   ]);
 
-  return <OrderForm products={products} services={services} />;
+  return (
+    <OrderForm products={products} services={services} onSubmit={createOrder} />
+  );
 }
