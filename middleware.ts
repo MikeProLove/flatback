@@ -1,10 +1,13 @@
-import { clerkMiddleware } from '@clerk/nextjs';
+// middleware.ts
+import { clerkMiddleware } from "@clerk/nextjs/server";
 
 export default clerkMiddleware();
 
 export const config = {
   matcher: [
-    // защищаем всё, кроме статики и публичной API
-    '/((?!_next/static|_next/image|favicon.ico|api/public).*)',
+    // пропускаем статику и служебные пути
+    "/((?!_next|[^?]*\\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest)).*)",
+    // всегда выполняем для API роутов
+    "/(api|trpc)(.*)",
   ],
 };
