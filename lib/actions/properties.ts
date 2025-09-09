@@ -1,24 +1,26 @@
 'use server';
+
 import { supabaseServer } from '@/lib/supabase-server';
 
-export async function listProducts() {
-  const { data, error } = await supabaseServer.from('products').select('*').order('name');
-  if (error) throw new Error(error.message);
-  return data;
-}
+type NewProperty = {
+  owner_id: string;
+  title?: string | null;
+  description?: string | null;
+  address?: string | null;
+  price: number;
+};
 
-export async function listServices() {
-  const { data, error } = await supabaseServer.from('services').select('*').order('name');
-  if (error) throw new Error(error.message);
-  return data;
-}
-
-export async function createProduct(p: { name: string; description?: string; price: number; category?: string; stock_qty?: number; }) {
-  const { error } = await supabaseServer.from('products').insert(p);
+export async function createProperty(data: NewProperty) {
+  const { error } = await supabaseServer.from('properties').insert(data);
   if (error) throw new Error(error.message);
 }
 
-export async function createService(s: { name: string; description?: string; price: number; category?: string; execution_time_minutes?: number; }) {
-  const { error } = await supabaseServer.from('services').insert(s);
+export async function listProperties() {
+  const { data, error } = await supabaseServer
+    .from('properties')
+    .select('*')
+    .order('created_at', { ascending: false });
+
   if (error) throw new Error(error.message);
+  return data ?? [];
 }
