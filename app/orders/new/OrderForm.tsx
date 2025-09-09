@@ -12,6 +12,7 @@ export default function OrderForm({ products, services, onSubmit }: any) {
 
   return (
     <div>
+      <h1>Новый заказ</h1>
       <Card />
       <button onClick={handleSubmit}>Создать заказ</button>
     </div>
