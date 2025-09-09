@@ -1,6 +1,8 @@
+// app/orders/new/page.tsx
+
 import { listProducts, listServices } from '@/lib/actions/catalog';
 import { createOrder } from '@/lib/actions/orders';
-import OrderForm from './OrderForm'; // 👈 клиентский компонент
+import OrderForm from './OrderForm'; // 👈 КЛИЕНТСКИЙ компонент
 
 export default async function Page() {
   const [products, services] = await Promise.all([
@@ -8,7 +10,5 @@ export default async function Page() {
     listServices(),
   ]);
 
-  return (
-    <OrderForm products={products} services={services} onSubmit={createOrder} />
-  );
+  return <OrderForm products={products} services={services} onSubmit={createOrder} />;
 }
