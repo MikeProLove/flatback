@@ -32,10 +32,7 @@ export default function OrderForm({ products, services, onSubmit }: Props) {
           ))}
         </select>
 
-        <button
-          onClick={handleSubmit}
-          className="border rounded px-3 py-1"
-        >
+        <button onClick={handleSubmit} className="border rounded px-3 py-1">
           Создать заказ
         </button>
       </div>
