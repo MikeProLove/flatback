@@ -1,22 +1,22 @@
-import "./globals.css";
-import type { Metadata } from "next";
-import { ClerkProvider } from "@clerk/nextjs";
-import Nav from "@/components/Nav";
+'use client';
 
-export const metadata: Metadata = {
-  title: "Flatback",
-  description: "MVP: Next + TypeScript + Supabase + Clerk",
-};
+import {
+  ClerkProvider, SignedIn, SignedOut, SignInButton, UserButton
+} from '@clerk/nextjs';
+import './globals.css';
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <ClerkProvider>
-      <html lang="ru">
-        <body className="min-h-screen bg-gray-50">
-          <Nav />
-          <main className="max-w-5xl mx-auto p-4">{children}</main>
-        </body>
-      </html>
+    <ClerkProvider publishableKey={process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}>
+      <html lang="ru"><body>
+        <header className="p-3 border-b flex gap-3">
+          <div className="ml-auto">
+            <SignedOut><SignInButton /></SignedOut>
+            <SignedIn><UserButton /></SignedIn>
+          </div>
+        </header>
+        {children}
+      </body></html>
     </ClerkProvider>
   );
 }
