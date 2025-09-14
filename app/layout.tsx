@@ -22,9 +22,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <Link href="/catalog/services">Услуги</Link>
               <Link href="/orders/create">Новый заказ</Link>
             </nav>
-            <div className="ml-auto">
-              <SignedOut><SignInButton /></SignedOut>
-              <SignedIn><UserButton /></SignedIn>
+            <div className="ml-auto flex items-center">
+              <SignedOut>
+                <SignInButton mode="modal" />
+              </SignedOut>
+              <SignedIn>
+                <UserButton />
+              </SignedIn>
             </div>
           </header>
           <main className="p-6">{children}</main>
