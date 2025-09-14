@@ -1,12 +1,7 @@
-// app/layout.tsx
 'use client';
 
 import {
-  ClerkProvider,
-  SignedIn,
-  SignedOut,
-  SignInButton,
-  UserButton,
+  ClerkProvider, SignedIn, SignedOut, SignInButton, UserButton
 } from '@clerk/nextjs';
 import Link from 'next/link';
 import './globals.css';
@@ -20,34 +15,16 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       afterSignInUrl="/"
       afterSignUpUrl="/"
     >
-      <html lang="ru">
-        <body>
-          <header className="p-3 border-b flex items-center gap-4">
-            <Link href="/" className="font-semibold">Flatback</Link>
-
-            <nav className="flex gap-3">
-              <Link href="/catalog/products">Товары</Link>
-              <Link href="/catalog/services">Услуги</Link>
-              <Link href="/orders/create">Новый заказ</Link>
-            </nav>
-
-            <div className="ml-auto flex items-center gap-3">
-              {/* Fallback-ссылка на случай проблем с провайдером */}
-              <Link href="/sign-in" className="underline">Войти (страница)</Link>
-
-              {/* Кнопки Clerk */}
-              <SignedOut>
-                <SignInButton mode="redirect" />
-              </SignedOut>
-              <SignedIn>
-                <UserButton />
-              </SignedIn>
-            </div>
-          </header>
-
-          <main className="p-6">{children}</main>
-        </body>
-      </html>
+      <html lang="ru"><body>
+        <header className="p-3 border-b flex items-center gap-4">
+          <Link href="/" className="font-semibold">Flatback</Link>
+          <div className="ml-auto flex items-center gap-3">
+            <SignedOut><SignInButton mode="redirect" /></SignedOut>
+            <SignedIn><UserButton /></SignedIn>
+          </div>
+        </header>
+        <main className="p-6">{children}</main>
+      </body></html>
     </ClerkProvider>
   );
 }
