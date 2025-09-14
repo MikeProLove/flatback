@@ -1,50 +1,61 @@
 // app/layout.tsx
-'use client';
-
+import type { Metadata } from "next";
 import {
   ClerkProvider,
   SignedIn,
   SignedOut,
   SignInButton,
+  SignUpButton,
   UserButton,
-} from '@clerk/nextjs';
-import Link from 'next/link';
-import './globals.css';
+} from "@clerk/nextjs";
+import Link from "next/link";
+import "./globals.css";
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export const metadata: Metadata = {
+  title: "Flatback",
+  description: "Flatback app",
+};
+
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   return (
-    <ClerkProvider
-      publishableKey={process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}
-      signInUrl="/sign-in"
-      signUpUrl="/sign-up"
-      afterSignInUrl="/"
-      afterSignUpUrl="/"
-    >
+    <ClerkProvider>
       <html lang="ru">
         <body>
-          <header className="p-3 border-b flex items-center gap-4">
-            <Link href="/" className="font-semibold">Flatback</Link>
-
-            <nav className="flex gap-3">
+          <header
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 16,
+              padding: "10px 16px",
+              borderBottom: "1px solid #eee",
+            }}
+          >
+            <nav style={{ display: "flex", gap: 12 }}>
+              <Link href="/">Flatback</Link>
               <Link href="/catalog/products">Товары</Link>
               <Link href="/catalog/services">Услуги</Link>
               <Link href="/orders/create">Новый заказ</Link>
             </nav>
 
-            <div className="ml-auto flex items-center gap-3">
-              {/* запасная ссылка — чисто ссылка, не зависит от Clerk */}
-              <Link href="/sign-in" className="underline">Войти (страница)</Link>
-
+            <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
               <SignedOut>
-                <SignInButton mode="redirect" />
+                {/* Кнопки аутентификации Clerk (модалка, без отдельных маршрутов) */}
+                <SignInButton mode="modal" />
+                <SignUpButton mode="modal" />
               </SignedOut>
+
               <SignedIn>
+                {/* Кнопка аккаунта с меню */}
                 <UserButton />
               </SignedIn>
             </div>
           </header>
 
-          <main className="p-6">{children}</main>
+          {children}
         </body>
       </html>
     </ClerkProvider>
