@@ -1,11 +1,6 @@
-// lib/actions/orders.ts
-type CreateOrderInput = {
-  productId?: string | null;
-  serviceId?: string | null;
-};
+'use server';
 
-export async function createOrder(input: CreateOrderInput) {
-  // TODO: позже подключим Supabase
-  console.log('createOrder payload:', input);
-  return { ok: true };
+export async function createOrder(formData: FormData) {
+  const productId = formData.get('productId') as string;
+  // ...валидация, сохранение в БД и т.д.
 }
