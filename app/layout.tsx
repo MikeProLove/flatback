@@ -32,12 +32,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             </nav>
 
             <div className="ml-auto flex items-center gap-3">
-              {/* Явная fallback-ссылка — полезна при отладке */}
+              {/* Fallback-ссылка на случай проблем с провайдером */}
               <Link href="/sign-in" className="underline">Войти (страница)</Link>
 
-              {/* Кнопка Clerk — используем редирект, не модалку */}
+              {/* Кнопки Clerk */}
               <SignedOut>
-                <SignInButton mode="redirect" redirectUrl="/sign-in" />
+                <SignInButton mode="redirect" />
               </SignedOut>
               <SignedIn>
                 <UserButton />
