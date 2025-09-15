@@ -1,54 +1,61 @@
 // lib/actions/catalog.ts
 import 'server-only';
-import { supabase } from '@/lib/supabase';
+import { getSupabaseServer } from '@/lib/supabase';
 
-// ВАЖНО: в нашей схеме price = NUMERIC(12,2).
-// Supabase-js возвращает numeric как string -> приводим к number.
-
-export type ProductRow = {
+export type Product = {
   id: string;
   name: string;
-  description: string | null;
-  price: number;            // уже приведён к number
-  category: string | null;
-  available: boolean;
-  stock_qty: number;
+  description?: string | null;
+  // в нашей схеме price_cents INTEGER, а ранее мог быть price NUMERIC
+  price_cents?: number | null;
+  price?: number | null;
+  is_active?: boolean | null;
 };
 
-export type ServiceRow = {
+export type Service = {
   id: string;
   name: string;
-  description: string | null;
-  price: number;            // уже приведён к number
-  category: string | null;
-  execution_time_minutes: number | null;
+  description?: string | null;
+  price_cents?: number | null;
+  price?: number | null;
+  is_active?: boolean | null;
 };
 
-export async function listProducts(): Promise<ProductRow[]> {
-  const { data, error } = await supabase
-    .from('products')
-    .select('id,name,description,price,category,available,stock_qty')
-    .eq('available', true)
-    .order('name', { ascending: true });
-
-  if (error) throw new Error(`listProducts: ${error.message}`);
-
-  return (data ?? []).map((r: any) => ({
-    ...r,
-    price: Number(r.price), // numeric -> number
-  }));
+// приведение цены к числу в рублях
+function toRub(p?: number | null, c?: number | null): number {
+  if (typeof c === 'number') return c / 100;
+  if (typeof p === 'number') return p;
+  return 0;
 }
 
-export async function listServices(): Promise<ServiceRow[]> {
-  const { data, error } = await supabase
-    .from('services')
-    .select('id,name,description,price,category,execution_time_minutes')
+/** Список товаров (только активные), отсортированы по имени */
+export async function listProducts(): Promise<Product[]> {
+  const sb = getSupabaseServer();
+
+  // пытаемся забирать универсально: и поля новой схемы, и старой
+  const { data, error } = await sb
+    .from('products')
+    .select('id,name,description,price,price_cents,is_active')
     .order('name', { ascending: true });
 
-  if (error) throw new Error(`listServices: ${error.message}`);
+  if (error) throw error;
 
-  return (data ?? []).map((r: any) => ({
-    ...r,
-    price: Number(r.price), // numeric -> number
-  }));
+  const items = (data ?? []).filter((x) => x.is_active ?? true) as Product[];
+  // нормализуем price (на клиенте можно пользоваться toRub ещё раз)
+  return items.map((x) => ({ ...x, price: toRub(x.price ?? null, x.price_cents ?? null) }));
+}
+
+/** Список услуг (только активные), отсортированы по имени */
+export async function listServices(): Promise<Service[]> {
+  const sb = getSupabaseServer();
+
+  const { data, error } = await sb
+    .from('services')
+    .select('id,name,description,price,price_cents,is_active')
+    .order('name', { ascending: true });
+
+  if (error) throw error;
+
+  const items = (data ?? []).filter((x) => x.is_active ?? true) as Service[];
+  return items.map((x) => ({ ...x, price: toRub(x.price ?? null, x.price_cents ?? null) }));
 }
