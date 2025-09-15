@@ -1,207 +1,153 @@
-// app/orders/create/OrderForm.tsx
 'use client';
 
-import * as React from 'react';
+import { useState } from 'react';
 
 type Product = {
   id: string;
   name: string;
-  price_cents?: number;
+  description?: string;
   price?: number;
-  is_active?: boolean;
+  category?: string;
+  stock_qty?: number;
 };
 
 type Service = {
   id: string;
   name: string;
-  price_cents?: number;
+  description?: string;
   price?: number;
-  is_active?: boolean;
+  category?: string;
+  execution_time_minutes?: number;
 };
 
 type Props = {
   products: Product[];
   services: Service[];
+  // Если позже добавим серверный экшен — можно прокинуть prop onSubmit/action
 };
-
-type Line = {
-  id: string;
-  kind: 'product' | 'service';
-  qty: number;
-};
-
-function priceToRub(p?: number, c?: number) {
-  if (typeof c === 'number') return c / 100;
-  if (typeof p === 'number') return p;
-  return 0;
-}
 
 export default function OrderForm({ products, services }: Props) {
-  const [lines, setLines] = React.useState<Line[]>([]);
-  const [loading, setLoading] = React.useState(false);
-  const [message, setMessage] = React.useState<string | null>(null);
+  const [productId, setProductId] = useState<string>('');
+  const [serviceId, setServiceId] = useState<string>('');
+  const [qtyProduct, setQtyProduct] = useState<number>(1);
+  const [qtyService, setQtyService] = useState<number>(1);
+  const [note, setNote] = useState<string>('');
 
-  const addProduct = (id: string) => {
-    if (!id) return;
-    setLines((prev) => [...prev, { id, kind: 'product', qty: 1 }]);
-  };
+  const pickedProduct = products.find((p) => p.id === productId);
+  const pickedService = services.find((s) => s.id === serviceId);
 
-  const addService = (id: string) => {
-    if (!id) return;
-    setLines((prev) => [...prev, { id, kind: 'service', qty: 1 }]);
-  };
+  const productPrice = pickedProduct?.price ?? 0;
+  const servicePrice = pickedService?.price ?? 0;
+  const total = productPrice * (qtyProduct || 0) + servicePrice * (qtyService || 0);
 
-  const updateQty = (index: number, qty: number) => {
-    setLines((prev) => prev.map((l, i) => (i === index ? { ...l, qty: Math.max(1, qty) } : l)));
-  };
+  const formatMoney = (n: number) =>
+    new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', maximumFractionDigits: 0 }).format(
+      Number.isFinite(n) ? n : 0
+    );
 
-  const removeLine = (index: number) => {
-    setLines((prev) => prev.filter((_, i) => i !== index));
-  };
-
-  const total = lines.reduce((sum, l) => {
-    if (l.kind === 'product') {
-      const p = products.find((x) => x.id === l.id);
-      return sum + (priceToRub(p?.price, p?.price_cents) * l.qty);
-    } else {
-      const s = services.find((x) => x.id === l.id);
-      return sum + (priceToRub(s?.price, s?.price_cents) * l.qty);
-    }
-  }, 0);
-
-  const onSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+  function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setLoading(true);
-    setMessage(null);
-    try {
-      // Заглушка для API — подключим позже реальный route handler /actions
-      const res = await fetch('/api/orders', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ lines }),
-      });
-      if (!res.ok) throw new Error('Failed to create order');
-      setMessage('Заказ создан (mock)');
-      setLines([]);
-    } catch (err: any) {
-      setMessage(err?.message ?? 'Ошибка при создании заказа');
-    } finally {
-      setLoading(false);
-    }
-  };
+    // На сейчас просто логируем — позже подключим server action createOrder
+    console.log('ORDER_DRAFT', {
+      productId,
+      qtyProduct,
+      serviceId,
+      qtyService,
+      note,
+      total,
+    });
+    alert('Черновик заказа сформирован в консоли. Позже свяжем с БД.');
+  }
 
   return (
-    <form onSubmit={onSubmit} className="space-y-6">
+    <form onSubmit={handleSubmit} className="space-y-4 rounded-lg border p-4">
       <div className="grid gap-4 md:grid-cols-2">
-        {/* Добавить товар */}
-        <div className="rounded border p-4">
-          <div className="mb-2 font-medium">Добавить товар</div>
+        {/* ТОВАР */}
+        <div>
+          <label className="mb-1 block text-sm font-medium">Товар</label>
           <select
-            className="w-full rounded border p-2"
-            onChange={(e) => {
-              addProduct(e.target.value);
-              e.currentTarget.selectedIndex = 0;
-            }}
-            defaultValue=""
+            className="w-full rounded border px-3 py-2"
+            value={productId}
+            onChange={(e) => setProductId(e.target.value)}
           >
             <option value="" disabled>
-              Выберите товар…
+              {products.length ? 'Выберите товар…' : 'Нет товаров'}
             </option>
             {products.map((p) => (
               <option key={p.id} value={p.id}>
-                {p.name} — {priceToRub(p.price, p.price_cents).toLocaleString('ru-RU')} ₽
+                {p.name} {p.price ? `— ${formatMoney(p.price)}` : ''}
               </option>
             ))}
           </select>
+          <div className="mt-2 flex items-center gap-2">
+            <label className="text-sm text-gray-600">Количество</label>
+            <input
+              type="number"
+              min={1}
+              className="w-24 rounded border px-2 py-1"
+              value={qtyProduct}
+              onChange={(e) => setQtyProduct(Number(e.target.value) || 1)}
+              disabled={!productId}
+            />
+          </div>
         </div>
 
-        {/* Добавить услугу */}
-        <div className="rounded border p-4">
-          <div className="mb-2 font-medium">Добавить услугу</div>
+        {/* УСЛУГА */}
+        <div>
+          <label className="mb-1 block text-sm font-medium">Услуга</label>
           <select
-            className="w-full rounded border p-2"
-            onChange={(e) => {
-              addService(e.target.value);
-              e.currentTarget.selectedIndex = 0;
-            }}
-            defaultValue=""
+            className="w-full rounded border px-3 py-2"
+            value={serviceId}
+            onChange={(e) => setServiceId(e.target.value)}
           >
             <option value="" disabled>
-              Выберите услугу…
+              {services.length ? 'Выберите услугу…' : 'Нет услуг'}
             </option>
             {services.map((s) => (
               <option key={s.id} value={s.id}>
-                {s.name} — {priceToRub(s.price, s.price_cents).toLocaleString('ru-RU')} ₽
+                {s.name} {s.price ? `— ${formatMoney(s.price)}` : ''}
               </option>
             ))}
           </select>
+          <div className="mt-2 flex items-center gap-2">
+            <label className="text-sm text-gray-600">Количество</label>
+            <input
+              type="number"
+              min={1}
+              className="w-24 rounded border px-2 py-1"
+              value={qtyService}
+              onChange={(e) => setQtyService(Number(e.target.value) || 1)}
+              disabled={!serviceId}
+            />
+          </div>
         </div>
       </div>
 
-      {/* Позиции заказа */}
-      <div className="rounded border">
-        <div className="border-b p-3 font-medium">Позиции</div>
-        {lines.length === 0 ? (
-          <div className="p-3 text-sm text-neutral-500">Пока пусто — добавьте товары или услуги.</div>
-        ) : (
-          <ul className="divide-y">
-            {lines.map((l, i) => {
-              const item =
-                l.kind === 'product'
-                  ? products.find((x) => x.id === l.id)
-                  : services.find((x) => x.id === l.id);
-
-              const unitPrice = priceToRub(item?.price, item?.price_cents);
-              return (
-                <li key={`${l.kind}-${l.id}-${i}`} className="flex items-center gap-3 p-3">
-                  <div className="min-w-24 rounded bg-neutral-100 px-2 py-1 text-xs uppercase">
-                    {l.kind}
-                  </div>
-                  <div className="flex-1">
-                    <div className="font-medium">{item?.name ?? '—'}</div>
-                    <div className="text-sm text-neutral-500">
-                      {unitPrice.toLocaleString('ru-RU')} ₽ ×
-                    </div>
-                  </div>
-                  <input
-                    type="number"
-                    min={1}
-                    className="w-24 rounded border p-2 text-right"
-                    value={l.qty}
-                    onChange={(e) => updateQty(i, Number(e.target.value))}
-                  />
-                  <div className="w-32 text-right font-medium">
-                    {(unitPrice * l.qty).toLocaleString('ru-RU')} ₽
-                  </div>
-                  <button
-                    type="button"
-                    className="rounded border px-3 py-2 text-sm hover:bg-neutral-50"
-                    onClick={() => removeLine(i)}
-                  >
-                    Удалить
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-        <div className="flex items-center justify-between border-t p-3">
-          <div className="text-neutral-500">Итого</div>
-          <div className="text-lg font-semibold">{total.toLocaleString('ru-RU')} ₽</div>
-        </div>
+      {/* ПРИМЕЧАНИЕ */}
+      <div>
+        <label className="mb-1 block text-sm font-medium">Примечание</label>
+        <textarea
+          className="w-full rounded border px-3 py-2"
+          rows={3}
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          placeholder="Что важно учесть…"
+        />
       </div>
 
-      {message && (
-        <div className="rounded border p-3 text-sm">{message}</div>
-      )}
+      {/* ИТОГО */}
+      <div className="flex items-center justify-between rounded bg-gray-50 px-4 py-3 text-sm">
+        <div className="text-gray-600">Итого</div>
+        <div className="text-lg font-semibold">{formatMoney(total)}</div>
+      </div>
 
-      <div className="flex justify-end">
+      <div className="flex items-center justify-end gap-2">
         <button
           type="submit"
-          disabled={loading || lines.length === 0}
-          className="rounded bg-black px-4 py-2 text-white disabled:opacity-50"
+          className="rounded-lg bg-black px-4 py-2 text-white hover:opacity-90 disabled:opacity-50"
+          disabled={!productId && !serviceId}
         >
-          {loading ? 'Создаём…' : 'Создать заказ'}
+          Сохранить черновик
         </button>
       </div>
     </form>
