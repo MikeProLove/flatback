@@ -1,4 +1,4 @@
-// app/debug/page.tsx
+// app/(debug)/debug/page.tsx
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 export const runtime = 'nodejs';
@@ -7,15 +7,20 @@ export default async function DebugPage() {
   const hasUrl = !!process.env.NEXT_PUBLIC_SUPABASE_URL;
   const hasKey = !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-  let ping: string = 'skip';
+  let ping = 'skip';
   try {
     const { getSafeSupabase } = await import('@/lib/supabase');
     const supabase = getSafeSupabase();
-    const { data, error } = await supabase.from('products').select('id').limit(1);
-    if (error) throw error;
-    ping = data?.length ? 'ok (products found or empty table)' : 'ok (empty table)';
+
+    if (!supabase) {
+      ping = 'supabase client is null (no env on build/runtime)';
+    } else {
+      const { data, error } = await supabase.from('products').select('id').limit(1);
+      if (error) throw error;
+      ping = data?.length ? 'ok (rows exist)' : 'ok (empty table)';
+    }
   } catch (e: any) {
-    ping = `error: ${e.message ?? String(e)}`;
+    ping = `error: ${e?.message ?? String(e)}`;
   }
 
   return (
@@ -33,7 +38,7 @@ export default async function DebugPage() {
         )}
       </pre>
       <p className="text-sm text-gray-600">
-        Если db_ping = <b>error</b> — смотри логи Vercel (Deployments → Logs) и Policies в Supabase.
+        Если <b>db_ping</b> показывает <code>error</code> или <code>null</code>, проверь переменные окружения в Vercel и RLS-политики в Supabase.
       </p>
     </div>
   );
