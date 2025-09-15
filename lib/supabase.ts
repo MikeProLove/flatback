@@ -1,15 +1,23 @@
 // lib/supabase.ts
-import 'server-only';
 import { createClient } from '@supabase/supabase-js';
 
-const url  = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+// Один общий кэш в рантайме, чтобы не создавать клиента заново
+let cachedClient: ReturnType<typeof createClient> | null = null;
 
-if (!url || !anon) {
-  throw new Error('Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY');
+/**
+ * Безопасно возвращает public Supabase-клиент.
+ * Если env отсутствуют (например, на этапе билда), вернёт null — и страница не упадёт.
+ */
+export function getSafeSupabase() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  if (!url || !key) {
+    // НИЧЕГО не бросаем на этапе импорта/билда.
+    return null;
+  }
+  if (!cachedClient) {
+    cachedClient = createClient(url, key);
+  }
+  return cachedClient;
 }
-
-// Клиент для чтения (по анонимному ключу). RLS пропустит только авторизованных (см. policies).
-export const supabase = createClient(url, anon, {
-  auth: { persistSession: false },
-});
