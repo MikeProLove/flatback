@@ -1,23 +1,21 @@
 // lib/supabase.ts
-import { createClient } from '@supabase/supabase-js';
+import 'server-only';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
-// Один общий кэш в рантайме, чтобы не создавать клиента заново
-let cachedClient: ReturnType<typeof createClient> | null = null;
+const URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const ANON = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+if (!URL || !ANON) {
+  // Явная ошибка во время билда, если забыли переменные окружения
+  throw new Error('Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY');
+}
 
 /**
- * Безопасно возвращает public Supabase-клиент.
- * Если env отсутствуют (например, на этапе билда), вернёт null — и страница не упадёт.
+ * Создаём одноразовый серверный клиент Supabase (без persistSession).
+ * Подходит для безопасного чтения публичных таблиц (RLS: select for authenticated).
  */
-export function getSafeSupabase() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-  if (!url || !key) {
-    // НИЧЕГО не бросаем на этапе импорта/билда.
-    return null;
-  }
-  if (!cachedClient) {
-    cachedClient = createClient(url, key);
-  }
-  return cachedClient;
+export function getSupabaseServer(): SupabaseClient {
+  return createClient(URL, ANON, {
+    auth: { persistSession: false },
+  });
 }
