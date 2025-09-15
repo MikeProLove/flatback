@@ -2,7 +2,6 @@
 import { SignedIn, SignedOut } from '@clerk/nextjs';
 import OrderForm from './OrderForm';
 
-// Рендер всегда на запрос, без кэша
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 export const fetchCache = 'force-no-store';
@@ -12,7 +11,7 @@ type Product = {
   id: string;
   name: string;
   description: string | null;
-  price: number | null;
+  price: number | null;        // придёт string из БД, приводим к number|null
   category: string | null;
   stock_qty: number | null;
 };
@@ -44,7 +43,6 @@ export default async function Page() {
   let services: Service[] = [];
   let banner: string | null = null;
 
-  // Если клиента нет (env не заданы на рантайме) — показываем баннер и пустую форму
   if (!supabase) {
     banner =
       'Переменные окружения Supabase недоступны. Форма отображается без предзагруженных данных.';
@@ -88,6 +86,22 @@ export default async function Page() {
     }
   }
 
+  // 👉 Приводим типы к тем, что ждёт OrderForm: null -> undefined
+  const productsForForm = products.map((p) => ({
+    ...p,
+    price: p.price ?? undefined,
+    stock_qty: p.stock_qty ?? undefined,
+    description: p.description ?? undefined,
+    category: p.category ?? undefined,
+  }));
+  const servicesForForm = services.map((s) => ({
+    ...s,
+    price: s.price ?? undefined,
+    execution_time_minutes: s.execution_time_minutes ?? undefined,
+    description: s.description ?? undefined,
+    category: s.category ?? undefined,
+  }));
+
   return (
     <main className="max-w-5xl mx-auto px-4 py-8">
       <SignedOut>
@@ -100,7 +114,7 @@ export default async function Page() {
             {banner}
           </div>
         )}
-        <OrderForm products={products} services={services} />
+        <OrderForm products={productsForForm} services={servicesForForm} />
       </SignedIn>
     </main>
   );
