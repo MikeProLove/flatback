@@ -1,82 +1,77 @@
 // app/orders/create/page.tsx
-import { SignedIn, SignedOut } from '@clerk/nextjs';
+import { SignedIn, SignedOut, SignInButton } from '@clerk/nextjs';
 import OrderForm from './OrderForm';
-import { money } from '@/lib/money';
+import { getSupabaseServer } from '@/lib/supabase-server';
+import type { Product, Service } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
-
-export type Product = {
-  id: string;
-  name: string;
-  description: string | null;
-  price: number | null;        // NUMERIC приходит строкой -> приводим дальше
-  category: string | null;
-  stock_qty: number | null;
-};
-
-export type Service = {
-  id: string;
-  name: string;
-  description: string | null;
-  price: number | null;        // NUMERIC
-  category: string | null;
-  execution_time_minutes: number | null;
-};
+export const revalidate = 0;
 
 export default async function Page() {
-  const { getSupabaseServer } = await import('@/lib/supabase-server');
   const supabase = getSupabaseServer();
 
   let products: Product[] = [];
   let services: Service[] = [];
   let warn = '';
 
-  if (supabase) {
+  if (!supabase) {
+    warn =
+      'Переменные окружения Supabase недоступны во время сборки. Форма отображается без предзагруженных данных.';
+  } else {
     try {
-      // товары
+      // Товары
       const { data: prodData, error: prodErr } = await supabase
         .from('products')
-        .select('id, name, description, price, category, stock_qty')
+        .select('id, name, description, price, category, stock_qty, is_active')
+        .eq('is_active', true)
         .order('name', { ascending: true });
 
       if (prodErr) throw prodErr;
+
       products = (prodData ?? []).map((p) => ({
         ...p,
-        price: p.price === null ? null : Number(p.price),
-      }));
+        price: p.price ?? 0,
+        stock_qty: p.stock_qty ?? 0,
+      })) as Product[];
 
-      // услуги
+      // Услуги
       const { data: svcData, error: svcErr } = await supabase
         .from('services')
-        .select('id, name, description, price, category, execution_time_minutes')
+        .select('id, name, description, price, category, execution_time_minutes, is_active')
+        .eq('is_active', true)
         .order('name', { ascending: true });
 
       if (svcErr) throw svcErr;
+
       services = (svcData ?? []).map((s) => ({
         ...s,
-        price: s.price === null ? null : Number(s.price),
-      }));
-    } catch {
-      warn =
-        'Не удалось предзагрузить данные с сервера. Форма всё равно работает и подгрузит данные из браузера.';
+        price: s.price ?? 0,
+        execution_time_minutes: s.execution_time_minutes ?? 60,
+      })) as Service[];
+    } catch (e: any) {
+      warn = `Не удалось загрузить каталог: ${e?.message ?? e}`;
+      products = [];
+      services = [];
     }
-  } else {
-    warn =
-      'Переменные окружения Supabase недоступны во время сборки. Форма отображается без предзагруженных данных.';
   }
 
   return (
-    <main className="mx-auto max-w-5xl p-6 space-y-6">
-      {warn && (
-        <div className="rounded border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+    <main className="container mx-auto max-w-5xl p-6">
+      <h1 className="text-2xl font-bold mb-6">Новый заказ</h1>
+
+      {!!warn && (
+        <div className="mb-6 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
           {warn}
         </div>
       )}
 
-      <h1 className="text-2xl font-semibold">Новый заказ</h1>
-
       <SignedOut>
-        <p className="text-gray-600">Войдите, чтобы создать заказ.</p>
+        <div className="text-sm">
+          Доступно только авторизованным пользователям.{' '}
+          <SignInButton mode="redirect" redirectUrl="/orders/create">
+            <span className="underline">Войти</span>
+          </SignInButton>
+        </div>
       </SignedOut>
 
       <SignedIn>
