@@ -38,8 +38,8 @@ export default async function Page() {
 
   if (supabase) {
     const [{ data: p }, { data: s }] = await Promise.all([
-      supabase.from('products').select('*').eq('is_active', true),
-      supabase.from('services').select('*').eq('is_active', true),
+      supabase.from('products').select('*').eq('available', true),
+      supabase.from('services').select('*'),
     ]);
     products = (p ?? []) as Product[];
     services = (s ?? []) as Service[];
