@@ -1,34 +1,65 @@
 // app/catalog/services/page.tsx
-export const dynamic = 'force-dynamic';
-
+import { SignedIn, SignedOut, SignInButton } from '@clerk/nextjs';
 import Card from '@/components/Card';
 import { money } from '@/lib/format';
-import { SignedIn, SignedOut, SignInButton } from '@clerk/nextjs';
-import { fetchServices, type ServiceRow } from '@/lib/actions/catalog';
+import type { Service } from '@/lib/types';
+import { getSupabaseServer } from '@/lib/supabase-server';
+
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
 export default async function ServicesPage() {
-  const services: ServiceRow[] = await fetchServices();
+  const supabase = getSupabaseServer();
+
+  let services: Service[] = [];
+  let warn = '';
+
+  if (!supabase) {
+    warn =
+      'Переменные окружения Supabase недоступны во время сборки. Страница рендерится без предзагруженных данных.';
+  } else {
+    const { data, error } = await supabase
+      .from('services')
+      .select('id, name, description, price, category, execution_time_minutes, is_active')
+      .eq('is_active', true)
+      .order('name', { ascending: true });
+
+    if (error) {
+      warn = `Не удалось загрузить услуги: ${error.message}`;
+    } else {
+      services =
+        (data ?? []).map((s) => ({
+          ...s,
+          price: s.price ?? 0,
+          execution_time_minutes: s.execution_time_minutes ?? 60,
+        })) as Service[];
+    }
+  }
 
   return (
-    <main className="mx-auto max-w-5xl p-6">
-      <h1 className="mb-6 text-2xl font-semibold">Каталог — Услуги</h1>
+    <main className="container mx-auto max-w-5xl p-6">
+      <h1 className="text-2xl font-bold mb-6">Каталог — Услуги</h1>
+
+      {!!warn && (
+        <div className="mb-6 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          {warn}
+        </div>
+      )}
 
       <SignedOut>
-        <div className="rounded-md border p-4 text-sm">
-          Для просмотра каталога войдите.{' '}
-          <SignInButton mode="modal">
-            <button className="underline">Войти</button>
+        <div className="text-sm">
+          Доступно только авторизованным пользователям.{' '}
+          <SignInButton mode="redirect" redirectUrl="/catalog/services">
+            <span className="underline">Войти</span>
           </SignInButton>
         </div>
       </SignedOut>
 
       <SignedIn>
-        {!services?.length ? (
-          <div className="rounded-md bg-yellow-50 p-4 text-sm text-yellow-800">
-            Нет данных (на этапе билда или пустая таблица).
-          </div>
+        {services.length === 0 ? (
+          <div className="text-gray-500">Нет данных (пустая таблица или ошибка загрузки).</div>
         ) : (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {services.map((s) => (
               <Card key={s.id} title={s.name}>
                 <div className="flex items-center justify-between text-sm text-gray-600 mb-1">
