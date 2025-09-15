@@ -1,45 +1,34 @@
 // app/(debug)/debug/page.tsx
 export const dynamic = 'force-dynamic';
-export const revalidate = 0;
-export const runtime = 'nodejs';
 
 export default async function DebugPage() {
-  const hasUrl = !!process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const hasKey = !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  const { getSupabaseServer } = await import('@/lib/supabase-server');
+  const supabase = getSupabaseServer();
 
-  let ping = 'skip';
-  try {
-    const { getSafeSupabase } = await import('@/lib/supabase');
-    const supabase = getSafeSupabase();
+  let status = 'env: MISSING';
+  let note = '';
 
-    if (!supabase) {
-      ping = 'supabase client is null (no env on build/runtime)';
-    } else {
+  if (supabase) {
+    try {
       const { data, error } = await supabase.from('products').select('id').limit(1);
-      if (error) throw error;
-      ping = data?.length ? 'ok (rows exist)' : 'ok (empty table)';
+      if (error) {
+        status = 'query: ERROR';
+        note = String(error.message ?? error);
+      } else {
+        status = `ok: ${data?.length ? 'rows found' : 'empty table'}`;
+      }
+    } catch (e: any) {
+      status = 'query: THROW';
+      note = String(e?.message ?? e);
     }
-  } catch (e: any) {
-    ping = `error: ${e?.message ?? String(e)}`;
   }
 
   return (
-    <div className="max-w-2xl mx-auto p-6 space-y-4">
-      <h1 className="text-xl font-semibold">Debug</h1>
-      <pre className="rounded bg-gray-100 p-3">
-        {JSON.stringify(
-          {
-            NEXT_PUBLIC_SUPABASE_URL: hasUrl ? 'present' : 'missing',
-            NEXT_PUBLIC_SUPABASE_ANON_KEY: hasKey ? 'present' : 'missing',
-            db_ping: ping,
-          },
-          null,
-          2
-        )}
+    <div className="mx-auto max-w-2xl p-6">
+      <h1 className="mb-3 text-xl font-semibold">Debug</h1>
+      <pre className="rounded bg-gray-100 p-3 text-sm">
+        {JSON.stringify({ status, note }, null, 2)}
       </pre>
-      <p className="text-sm text-gray-600">
-        Если <b>db_ping</b> показывает <code>error</code> или <code>null</code>, проверь переменные окружения в Vercel и RLS-политики в Supabase.
-      </p>
     </div>
   );
 }
