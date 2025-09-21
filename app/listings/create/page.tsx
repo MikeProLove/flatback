@@ -1,4 +1,3 @@
-// app/listings/create/page.tsx
 import React from 'react';
 import { auth } from '@clerk/nextjs/server';
 import AuthRequired from '@/components/AuthRequired';
