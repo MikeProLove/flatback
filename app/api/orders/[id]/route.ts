@@ -1,3 +1,4 @@
+// app/api/orders/[id]/route.ts
 import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { getSupabaseServer } from '@/lib/supabase-server';
@@ -28,25 +29,15 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
       .eq('id', params.id)
       .limit(1);
 
-    if (readErr || !rows || !rows[0]) return new NextResponse('Not found', { status: 404 });
+    if (readErr || !rows?.[0]) return new NextResponse('Not found', { status: 404 });
     const order = rows[0] as { id: string; user_id: string | null; is_paid: boolean; status: string };
     if (order.user_id !== userId) return new NextResponse('Forbidden', { status: 403 });
 
-    // --- заменить состав (только пока не оплачен и pending)
+    // заменить состав
     if (action === 'replace_items') {
-      if (order.is_paid || order.status !== 'pending') {
-        return new NextResponse('Editing not allowed', { status: 400 });
-      }
-      const items = (body?.items ?? []) as Array<{
-        kind: 'product' | 'service';
-        id: string;
-        name: string;
-        price: number;
-        qty: number;
-      }>;
-      if (!Array.isArray(items) || items.length === 0) {
-        return new NextResponse('No items', { status: 400 });
-      }
+      if (order.is_paid || order.status !== 'pending') return new NextResponse('Editing not allowed', { status: 400 });
+      const items = (body?.items ?? []) as Array<{ kind:'product'|'service'; id:string; name:string; price:number; qty:number }>;
+      if (!items.length) return new NextResponse('No items', { status: 400 });
       for (const l of items) {
         if (!l || !l.kind || !l.id || !l.name || !Number.isFinite(l.price) || !Number.isFinite(l.qty)) {
           return new NextResponse('Invalid payload', { status: 400 });
@@ -54,17 +45,11 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
       }
       const amount = items.reduce((s, l) => s + l.price * l.qty, 0);
 
-      // заменяем атомарно (простая версия без транзакции)
       const { error: delErr } = await supabase.from('order_items').delete().eq('order_id', params.id);
       if (delErr) return new NextResponse('Failed to clear items', { status: 500 });
 
       const rowsToInsert = items.map((l) => ({
-        order_id: params.id,
-        kind: l.kind,
-        item_id: l.id,
-        name: l.name,
-        price: l.price,
-        qty: l.qty,
+        order_id: params.id, kind: l.kind, item_id: l.id, name: l.name, price: l.price, qty: l.qty,
       }));
       const { error: insErr } = await supabase.from('order_items').insert(rowsToInsert);
       if (insErr) return new NextResponse('Failed to insert items', { status: 500 });
@@ -72,39 +57,66 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
       const { error: updErr } = await supabase.from('orders').update({ amount }).eq('id', params.id);
       if (updErr) return new NextResponse('Failed to update order', { status: 500 });
 
+      await supabase.from('order_events').insert({
+        order_id: params.id,
+        kind: 'items_replaced',
+        payload: { items_count: items.length, amount },
+      });
+
       return NextResponse.json({ ok: true });
     }
 
-    // --- остальное (pay/unpay/status) как у нас уже было:
-    const newStatus = body?.status as string | undefined;
-
+    // оплатить
     if (action === 'pay') {
       const patch: any = { is_paid: true, paid_at: new Date().toISOString() };
+      const from = order.status;
       if (order.status === 'pending') patch.status = 'paid';
       const { error } = await supabase.from('orders').update(patch).eq('id', params.id);
       if (error) return new NextResponse('Failed to update', { status: 500 });
+
+      await supabase.from('order_events').insert({
+        order_id: params.id,
+        kind: 'paid',
+        payload: from === 'pending' ? { status_from: from, status_to: 'paid' } : null,
+      });
+
       return NextResponse.json({ ok: true });
     }
 
+    // снять оплату
     if (action === 'unpay') {
       const patch: any = { is_paid: false, paid_at: null };
+      const from = order.status;
       if (order.status === 'paid') patch.status = 'pending';
       const { error } = await supabase.from('orders').update(patch).eq('id', params.id);
       if (error) return new NextResponse('Failed to update', { status: 500 });
+
+      await supabase.from('order_events').insert({
+        order_id: params.id,
+        kind: 'unpaid',
+        payload: from === 'paid' ? { status_from: from, status_to: 'pending' } : null,
+      });
+
       return NextResponse.json({ ok: true });
     }
 
+    // смена статуса
     if (action === 'status') {
-      if (!newStatus) return new NextResponse('Bad request', { status: 400 });
+      const to = body?.status as string | undefined;
+      if (!to) return new NextResponse('Bad request', { status: 400 });
       const allowed = ALLOWED[order.status] || [];
-      if (!allowed.includes(newStatus)) {
-        return new NextResponse('Transition not allowed', { status: 400 });
-      }
-      if (newStatus === 'paid' && !order.is_paid) {
-        return new NextResponse('Mark as paid first', { status: 400 });
-      }
-      const { error } = await supabase.from('orders').update({ status: newStatus }).eq('id', params.id);
+      if (!allowed.includes(to)) return new NextResponse('Transition not allowed', { status: 400 });
+      if (to === 'paid' && !order.is_paid) return new NextResponse('Mark as paid first', { status: 400 });
+
+      const { error } = await supabase.from('orders').update({ status: to }).eq('id', params.id);
       if (error) return new NextResponse('Failed to update', { status: 500 });
+
+      await supabase.from('order_events').insert({
+        order_id: params.id,
+        kind: 'status_changed',
+        payload: { status_from: order.status, status_to: to },
+      });
+
       return NextResponse.json({ ok: true });
     }
 
@@ -114,23 +126,33 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     return new NextResponse('Internal error', { status: 500 });
   }
 }
+
 export async function DELETE(_req: Request, { params }: { params: { id: string } }) {
   try {
     const { userId } = auth();
     if (!userId) return new NextResponse('Unauthorized', { status: 401 });
     const supabase = getSupabaseServer();
 
+    // проверим владельца
     const { data: rows, error: readErr } = await supabase
       .from('orders')
       .select('id, user_id')
       .eq('id', params.id)
       .limit(1);
 
-    if (readErr || !rows || !rows[0]) return new NextResponse('Not found', { status: 404 });
+    if (readErr || !rows?.[0]) return new NextResponse('Not found', { status: 404 });
     if (rows[0].user_id !== userId) return new NextResponse('Forbidden', { status: 403 });
+
+    // лог до удаления
+    await supabase.from('order_events').insert({
+      order_id: params.id,
+      kind: 'deleted',
+      payload: null,
+    });
 
     const { error: delErr } = await supabase.from('orders').delete().eq('id', params.id);
     if (delErr) return new NextResponse('Failed to delete', { status: 500 });
+
     return NextResponse.json({ ok: true });
   } catch (e) {
     console.error('[orders:DELETE] ', e);
