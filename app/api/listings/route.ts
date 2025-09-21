@@ -4,7 +4,6 @@ export const runtime = 'nodejs';
 import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { randomUUID } from 'crypto';
-import { getSupabaseServer } from '@/lib/supabase-server';
 import { getSupabaseAdmin } from '@/lib/supabase-admin';
 
 function bool(v: FormDataEntryValue | null) {
@@ -26,7 +25,7 @@ export async function POST(req: Request) {
 
     const form = await req.formData();
 
-    // --- основные поля
+    // ---- поля
     const title = str(form.get('title'));
     const price = num(form.get('price')) ?? 0;
     const currency = (form.get('currency') as string) || 'RUB';
@@ -54,7 +53,7 @@ export async function POST(req: Request) {
     const utilities_included = bool(form.get('utilities_included'));
     const pets_allowed = bool(form.get('pets_allowed'));
     const kids_allowed = bool(form.get('kids_allowed'));
-    const available_from = str(form.get('available_from')); // YYYY-MM-DD
+    const available_from = str(form.get('available_from'));
     const min_term_months = num(form.get('min_term_months'));
 
     const building_type = str(form.get('building_type'));
@@ -81,13 +80,13 @@ export async function POST(req: Request) {
 
     const tour_url = str(form.get('tour_url'));
     const tourFile = form.get('tour_file') as File | null;
-    const photos = form.getAll('photos') as unknown as File[];
+    const photos = form.getAll('photos') as File[];
 
-    const supabase = getSupabaseServer(); // для таблиц (идёт через anon)
-    const admin = getSupabaseAdmin();     // для Storage (идёт через service role)
+    // --- сервисный клиент: и БД, и Storage через один клиент
+    const sb = getSupabaseAdmin();
 
-    // 1) создаём объявление
-    const { data: listingRows, error: insErr } = await supabase
+    // 1) запись объявления
+    const { data: listingRows, error: insErr } = await sb
       .from('listings')
       .insert({
         user_id: userId,
@@ -133,26 +132,30 @@ export async function POST(req: Request) {
       .limit(1);
 
     if (insErr || !listingRows?.[0]) {
-      console.error('[listings] insert', insErr);
-      return new NextResponse('Failed to create listing', { status: 500 });
+      console.error('[listings] insert error', insErr);
+      return NextResponse.json(
+        { error: 'insert_failed', message: insErr?.message ?? 'Failed to create listing' },
+        { status: 500 }
+      );
     }
+
     const listingId = listingRows[0].id as string;
 
-    // 2) фото → Storage (через admin), затем строки в listing_photos
+    // 2) фото -> Storage (публичный URL) -> listing_photos
     const uploaded: { url: string; path: string }[] = [];
     for (const f of photos) {
-      if (!f || (f as File).size === 0) continue;
-      const ext = (f.name?.split('.').pop() || 'jpg').toLowerCase();
+      if (!f || f.size === 0) continue;
+      const ext = (f.name.split('.').pop() || 'jpg').toLowerCase();
       const path = `${userId}/${listingId}/${randomUUID()}.${ext}`;
-      const up = await admin.storage.from('listings').upload(path, f as File, {
-        contentType: (f as File).type || 'image/jpeg',
+      const up = await sb.storage.from('listings').upload(path, f, {
+        contentType: f.type || 'image/jpeg',
         upsert: false,
       });
       if (up.error) {
         console.error('[storage] photo upload', up.error);
         continue;
       }
-      const pub = admin.storage.from('listings').getPublicUrl(path);
+      const pub = sb.storage.from('listings').getPublicUrl(path);
       uploaded.push({ url: pub.data.publicUrl, path });
     }
 
@@ -163,28 +166,28 @@ export async function POST(req: Request) {
         storage_path: u.path,
         sort_order: idx,
       }));
-      const { error: photoErr } = await supabase.from('listing_photos').insert(rows);
+      const { error: photoErr } = await sb.from('listing_photos').insert(rows);
       if (photoErr) console.error('[listing_photos] insert', photoErr);
     }
 
-    // 3) 3D-тур → Storage (через admin) + обновить ссылку в listings
+    // 3) 3D-тур (если файл)
     if (tourFile && tourFile.size > 0) {
-      const ext = (tourFile.name?.split('.').pop() || 'bin').toLowerCase();
+      const ext = (tourFile.name.split('.').pop() || 'bin').toLowerCase();
       const tpath = `${userId}/${listingId}/${randomUUID()}.${ext}`;
-      const up = await admin.storage.from('listings-3d').upload(tpath, tourFile, {
+      const up = await sb.storage.from('listings-3d').upload(tpath, tourFile, {
         contentType: tourFile.type || 'application/octet-stream',
         upsert: false,
       });
       if (!up.error) {
-        await supabase.from('listings').update({ tour_file_path: tpath }).eq('id', listingId);
+        await sb.from('listings').update({ tour_file_path: tpath }).eq('id', listingId);
       } else {
         console.error('[storage] tour upload', up.error);
       }
     }
 
     return NextResponse.json({ id: listingId });
-  } catch (e) {
+  } catch (e: any) {
     console.error('[listings] POST error', e);
-    return new NextResponse('Internal error', { status: 500 });
+    return NextResponse.json({ error: 'server_error', message: e?.message ?? 'Internal error' }, { status: 500 });
   }
 }
