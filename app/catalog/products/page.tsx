@@ -12,14 +12,6 @@ export const dynamic = 'force-dynamic';
 async function getProducts(): Promise<Product[]> {
   const supabase = getSupabaseServer();
 
-  if (!supabase) {
-    console.error(
-      '[products] Supabase client is not configured. ' +
-        'Проверь .env: NEXT_PUBLIC_SUPABASE_URL и NEXT_PUBLIC_SUPABASE_ANON_KEY (или серверные ключи).'
-    );
-    return [];
-  }
-
   const { data, error } = await supabase
     .from('products')
     .select('*')
@@ -74,9 +66,7 @@ export default async function ProductsPage() {
                     {title}
                   </h3>
                   {category ? (
-                    <p className="mt-1 text-sm text-muted-foreground">
-                      {category}
-                    </p>
+                    <p className="mt-1 text-sm text-muted-foreground">{category}</p>
                   ) : null}
                 </div>
 
@@ -95,9 +85,7 @@ export default async function ProductsPage() {
                   <div className="flex items-center justify-between">
                     <span className="text-base font-medium">{price}</span>
                     {city ? (
-                      <span className="text-sm text-muted-foreground">
-                        {city}
-                      </span>
+                      <span className="text-sm text-muted-foreground">{city}</span>
                     ) : null}
                   </div>
                 </div>
