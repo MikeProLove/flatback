@@ -1,13 +1,15 @@
 // app/listings/[id]/page.tsx
 import React from 'react';
 import { notFound } from 'next/navigation';
-import { getSupabaseServer } from '@/lib/supabase-server';
+import { getSupabaseAdmin } from '@/lib/supabase-admin';
 import { money } from '@/lib/format';
 
 export const dynamic = 'force-dynamic';
 
 type Listing = {
   id: string;
+  owner_id: string | null;
+  user_id: string | null;
   title: string | null;
   address: string | null;
   city: string | null;
@@ -36,35 +38,51 @@ type Listing = {
   created_at: string;
 };
 
-type Photo = {
-  id: string;
-  listing_id: string;
-  url: string;
-  sort_order: number;
-};
+type Photo = { id: string; listing_id: string; url: string; sort_order: number };
 
-async function getListing(id: string) {
-  const sb = getSupabaseServer();
+async function fetchListingAndPhotos(id: string) {
+  const sb = getSupabaseAdmin();
 
-  const { data: listing, error } = await sb
-    .from('listings')
-    .select('*')
-    .eq('id', id)
-    .maybeSingle();
+  // читаем объявление
+  const { data: l, error: e1 } = await sb.from('listings').select('*').eq('id', id).maybeSingle();
+  if (e1 || !l) return null;
+  const listing = l as Listing;
 
-  if (error || !listing) return null;
-
-  const { data: photos } = await sb
+  // читаем из таблицы listing_photos
+  let photos: { id: string; url: string }[] = [];
+  const { data: photoRows, error: e2 } = await sb
     .from('listing_photos')
     .select('id,listing_id,url,sort_order')
     .eq('listing_id', id)
     .order('sort_order', { ascending: true });
 
-  return { listing: listing as Listing, photos: (photos as Photo[]) ?? [] };
+  if (!e2 && photoRows?.length) {
+    photos = (photoRows as Photo[]).map(p => ({ id: p.id, url: p.url }));
+  }
+
+  // fallback: если строк нет, подхватываем прям с Storage по пути {owner_id}/{listing_id}/
+  if (photos.length === 0) {
+    const owner = listing.owner_id || listing.user_id; // подстраховка
+    if (owner) {
+      const prefix = `${owner}/${listing.id}`;
+      const list = await sb.storage.from('listings').list(prefix, { limit: 100 });
+      if (!list.error && list.data?.length) {
+        photos = list.data
+          .filter(obj => obj.name) // только файлы
+          .map(obj => {
+            const fullPath = `${prefix}/${obj.name}`;
+            const pub = sb.storage.from('listings').getPublicUrl(fullPath);
+            return { id: fullPath, url: pub.data.publicUrl };
+          });
+      }
+    }
+  }
+
+  return { listing, photos };
 }
 
 export default async function ListingPage({ params }: { params: { id: string } }) {
-  const data = await getListing(params.id);
+  const data = await fetchListingAndPhotos(params.id);
   if (!data) notFound();
   const { listing, photos } = data;
 
@@ -117,27 +135,25 @@ export default async function ListingPage({ params }: { params: { id: string } }
       </div>
 
       {/* 3D-тур */}
-      {listing.tour_url || listing.tour_file_path ? (
+      {(listing.tour_url || listing.tour_file_path) && (
         <div className="rounded-2xl border p-4 space-y-2">
           <div className="font-medium">3D-тур</div>
-          {listing.tour_url ? (
+          {listing.tour_url && (
             <a href={listing.tour_url} target="_blank" className="underline">Открыть ссылку тура</a>
-          ) : null}
-          {listing.tour_file_path ? (
-            <div className="text-sm">
-              Файл: <span className="text-muted-foreground">{listing.tour_file_path}</span>
-            </div>
-          ) : null}
+          )}
+          {listing.tour_file_path && (
+            <div className="text-sm text-muted-foreground">Файл: {listing.tour_file_path}</div>
+          )}
         </div>
-      ) : null}
+      )}
 
       {/* Описание */}
-      {listing.description ? (
+      {listing.description && (
         <div className="rounded-2xl border p-4">
           <div className="font-medium mb-1">Описание</div>
           <div className="whitespace-pre-line text-sm">{listing.description}</div>
         </div>
-      ) : null}
+      )}
     </div>
   );
 }
