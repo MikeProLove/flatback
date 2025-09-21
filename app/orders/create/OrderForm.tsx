@@ -1,8 +1,7 @@
-// app/orders/create/OrderForm.tsx
 'use client';
 
-import { useRouter } from 'next/navigation';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import type { Product, Service } from '@/lib/types';
 import { money } from '@/lib/format';
 
@@ -11,23 +10,33 @@ type Line =
   | { kind: 'service'; id: string; name: string; price: number; qty: number };
 
 type Props = {
+  mode?: 'create' | 'edit';
+  orderId?: string;
   products?: Product[];
   services?: Service[];
   preProductId?: string;
   preServiceId?: string;
+  initialItems?: Line[];
 };
 
 export default function OrderForm({
+  mode = 'create',
+  orderId,
   products = [],
   services = [],
   preProductId,
   preServiceId,
+  initialItems = [],
 }: Props) {
-  const [items, setItems] = useState<Line[]>([]);
-  const total = useMemo(() => items.reduce((s, l) => s + l.price * l.qty, 0), [items]);
   const router = useRouter();
+  const [items, setItems] = useState<Line[]>(initialItems);
 
-  // ---- категории
+  const total = useMemo(
+    () => items.reduce((s, l) => s + l.price * l.qty, 0),
+    [items]
+  );
+
+  // --- категории
   const productCategories = useMemo(() => {
     const set = new Set<string>();
     products.forEach((p) => set.add((p.category ?? 'Без категории').toString()));
@@ -40,7 +49,7 @@ export default function OrderForm({
     return Array.from(set).sort();
   }, [services]);
 
-  // ---- выбранные значения селектов
+  // --- выбранные значения UI
   const [prodCategory, setProdCategory] = useState<string>('');
   const [prodId, setProdId] = useState<string>('');
   const [servCategory, setServCategory] = useState<string>('');
@@ -55,7 +64,7 @@ export default function OrderForm({
     [services, servCategory]
   );
 
-  // ---- add helpers
+  // --- add helpers
   function addProductById(id: string) {
     const p = products.find((x) => String((x as any).id) === id);
     if (!p) return;
@@ -71,34 +80,41 @@ export default function OrderForm({
     setItems((prev) => [...prev, { kind: 'service', id: String((s as any).id), name, price, qty: 1 }]);
   }
 
-  // ---- авто-добавление по query (?product=... / ?service=...)
+  // --- авто-добавление по query (create) + применение initialItems (edit)
   const preAdded = useRef(false);
   useEffect(() => {
     if (preAdded.current) return;
+
     let touched = false;
 
-    if (preProductId) {
-      // выставим категорию, чтобы в селекте был правильный список
-      const p = products.find((x) => String((x as any).id) === preProductId);
-      if (p) {
-        setProdCategory((p.category ?? 'Без категории').toString());
-        addProductById(preProductId);
-        touched = true;
+    if (mode === 'create') {
+      if (preProductId) {
+        const p = products.find((x) => String((x as any).id) === preProductId);
+        if (p) {
+          setProdCategory((p.category ?? 'Без категории').toString());
+          addProductById(preProductId);
+          touched = true;
+        }
+      }
+      if (preServiceId) {
+        const s = services.find((x) => String((x as any).id) === preServiceId);
+        if (s) {
+          setServCategory((s.category ?? 'Без категории').toString());
+          addServiceById(preServiceId);
+          touched = true;
+        }
       }
     }
-    if (preServiceId) {
-      const s = services.find((x) => String((x as any).id) === preServiceId);
-      if (s) {
-        setServCategory((s.category ?? 'Без категории').toString());
-        addServiceById(preServiceId);
-        touched = true;
-      }
+
+    if (mode === 'edit' && initialItems.length > 0) {
+      setItems(initialItems);
+      touched = true;
     }
 
     if (touched) preAdded.current = true;
-  }, [preProductId, preServiceId, products, services]);
+  }, [mode, preProductId, preServiceId, products, services, initialItems]);
 
-  // ---- изменение/удаление
+  // --- изменение/удаление
   function changeQty(index: number, qty: number) {
     setItems((prev) => {
       const next = [...prev];
@@ -110,32 +126,41 @@ export default function OrderForm({
     setItems((prev) => prev.filter((_, i) => i !== index));
   }
 
-  // ---- сабмит
+  // --- сабмит
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [createdId, setCreatedId] = useState<string | null>(null);
 
   async function handleSubmit(e: React.FormEvent) {
-  e.preventDefault();
-  setError(null);
-  setSubmitting(true);
-  try {
-    const res = await fetch('/api/orders', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ items }),
-    });
-    if (!res.ok) throw new Error(await res.text());
-    const data = (await res.json()) as { orderId: string };
-    router.push(`/orders/${data.orderId}`); // ⬅️ сразу на карточку заказа
-  } catch (err: any) {
-    setError(err.message || 'Ошибка');
-  } finally {
-    setSubmitting(false);
+    e.preventDefault();
+    setError(null);
+    setSubmitting(true);
+    try {
+      if (mode === 'edit' && orderId) {
+        const res = await fetch(`/api/orders/${orderId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'replace_items', items }),
+        });
+        if (!res.ok) throw new Error(await res.text());
+        router.push(`/orders/${orderId}`);
+      } else {
+        const res = await fetch('/api/orders', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ items }),
+        });
+        if (!res.ok) throw new Error(await res.text());
+        const data = (await res.json()) as { orderId: string };
+        router.push(`/orders/${data.orderId}`);
+      }
+    } catch (err: any) {
+      setError(err.message || 'Ошибка');
+    } finally {
+      setSubmitting(false);
+    }
   }
-}
 
-  // ---- UI
+  // --- UI
   return (
     <form onSubmit={handleSubmit} className="space-y-8">
       {/* ТОВАРЫ */}
@@ -276,18 +301,13 @@ export default function OrderForm({
         <div className="text-xl font-semibold">{money(total)}</div>
       </div>
 
-      {error ? <div className="text-sm text-red-600">{error}</div> : null}
-      {createdId ? (
-        <div className="text-sm text-green-600">Заказ создан: {createdId}</div>
-      ) : null}
-
       <div className="flex justify-end">
         <button
           type="submit"
           className="px-4 py-2 rounded-md border"
           disabled={items.length === 0 || submitting}
         >
-          {submitting ? 'Создаём…' : 'Создать заказ'}
+          {submitting ? (mode === 'edit' ? 'Сохраняем…' : 'Создаём…') : (mode === 'edit' ? 'Сохранить' : 'Создать заказ')}
         </button>
       </div>
     </form>
