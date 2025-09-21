@@ -12,51 +12,71 @@ type Line =
 type Props = {
   products?: Product[];
   services?: Service[];
-  onSubmit?: (items: Line[], total: number) => void;
 };
 
-export default function OrderForm({ products = [], services = [], onSubmit }: Props) {
+export default function OrderForm({ products = [], services = [] }: Props) {
+  // ---- состояние заказа
   const [items, setItems] = useState<Line[]>([]);
-
   const total = useMemo(
     () => items.reduce((sum, l) => sum + l.price * l.qty, 0),
     [items]
   );
 
-  // --- Добавление позиций ----------------------------------------------------
+  // ---- справочники категорий
+  const productCategories = useMemo(() => {
+    const set = new Set<string>();
+    products.forEach((p) =>
+      set.add((p.category ?? 'Без категории').toString())
+    );
+    return Array.from(set).sort();
+  }, [products]);
 
-  function addProduct(p?: Product) {
+  const serviceCategories = useMemo(() => {
+    const set = new Set<string>();
+    services.forEach((s) =>
+      set.add((s.category ?? 'Без категории').toString())
+    );
+    return Array.from(set).sort();
+  }, [services]);
+
+  // ---- выбранные значения
+  const [prodCategory, setProdCategory] = useState<string>('');
+  const [prodId, setProdId] = useState<string>('');
+  const [servCategory, setServCategory] = useState<string>('');
+  const [servId, setServId] = useState<string>('');
+
+  const filteredProducts = useMemo(() => {
+    return products.filter((p) =>
+      prodCategory ? (p.category ?? 'Без категории') === prodCategory : true
+    );
+  }, [products, prodCategory]);
+
+  const filteredServices = useMemo(() => {
+    return services.filter((s) =>
+      servCategory ? (s.category ?? 'Без категории') === servCategory : true
+    );
+  }, [services, servCategory]);
+
+  // ---- добавление позиций
+  function addProductById(id: string) {
+    const p = products.find((x) => String((x as any).id) === id);
     if (!p) return;
     const price =
       typeof p.price === 'number' ? p.price : Number(p.price ?? 0) || 0;
-
-    const id = String((p as any).id); // гарантируем string
-    const name =
-      (p.name ?? (p as any).title ?? 'Без названия').toString(); // гарантируем string
-
-    setItems((prev) => [
-      ...prev,
-      { kind: 'product', id, name, price, qty: 1 },
-    ]);
+    const name = (p.name ?? (p as any).title ?? 'Без названия').toString();
+    setItems((prev) => [...prev, { kind: 'product', id: String((p as any).id), name, price, qty: 1 }]);
   }
 
-  function addService(s?: Service) {
+  function addServiceById(id: string) {
+    const s = services.find((x) => String((x as any).id) === id);
     if (!s) return;
     const price =
       typeof s.price === 'number' ? s.price : Number(s.price ?? 0) || 0;
-
-    const id = String((s as any).id); // гарантируем string
-    const name =
-      (s.name ?? (s as any).title ?? 'Без названия').toString(); // гарантируем string
-
-    setItems((prev) => [
-      ...prev,
-      { kind: 'service', id, name, price, qty: 1 },
-    ]);
+    const name = (s.name ?? (s as any).title ?? 'Без названия').toString();
+    setItems((prev) => [...prev, { kind: 'service', id: String((s as any).id), name, price, qty: 1 }]);
   }
 
-  // --- Изменение количества/удаление ----------------------------------------
-
+  // ---- изменение/удаление
   function changeQty(index: number, qty: number) {
     setItems((prev) => {
       const next = [...prev];
@@ -64,75 +84,135 @@ export default function OrderForm({ products = [], services = [], onSubmit }: Pr
       return next;
     });
   }
-
   function removeLine(index: number) {
     setItems((prev) => prev.filter((_, i) => i !== index));
   }
 
-  // --- Сабмит ----------------------------------------------------------------
+  // ---- сабмит: создаём заказ через API
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [createdId, setCreatedId] = useState<string | null>(null);
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    onSubmit?.(items, total);
+    setError(null);
+    setSubmitting(true);
+    try {
+      const res = await fetch('/api/orders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items }),
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(text || 'Ошибка создания заказа');
+      }
+      const data = (await res.json()) as { orderId: string };
+      setCreatedId(data.orderId);
+      setItems([]);
+    } catch (err: any) {
+      setError(err.message || 'Ошибка');
+    } finally {
+      setSubmitting(false);
+    }
   }
 
-  // --- Простой UI для проверки (можешь заменить на свой) ---------------------
-
+  // ---- UI
   return (
-    <form onSubmit={handleSubmit} className="space-y-6">
-      {/* Добавление из списка продуктов */}
-      {products.length > 0 && (
-        <div className="flex items-center gap-2">
+    <form onSubmit={handleSubmit} className="space-y-8">
+      {/* Блок ТОВАРЫ */}
+      <section className="space-y-3">
+        <h2 className="text-lg font-semibold">Добавить товар</h2>
+        <div className="flex flex-wrap items-center gap-3">
           <select
             className="border rounded-md px-3 py-2"
+            value={prodCategory}
             onChange={(e) => {
-              const selected = products.find(
-                (p) => String((p as any).id) === e.target.value
-              );
-              addProduct(selected);
-              e.currentTarget.selectedIndex = 0; // сброс выбора
+              setProdCategory(e.target.value);
+              setProdId(''); // сброс выбранного товара при смене категории
             }}
-            defaultValue=""
+            disabled={products.length === 0}
+          >
+            <option value="">Все категории</option>
+            {productCategories.map((c) => (
+              <option key={c} value={c}>{c}</option>
+            ))}
+          </select>
+
+          <select
+            className="border rounded-md px-3 py-2 min-w-[280px]"
+            value={prodId}
+            onChange={(e) => setProdId(e.target.value)}
+            disabled={filteredProducts.length === 0}
           >
             <option value="" disabled>
-              Добавить товар…
+              {products.length === 0 ? 'Нет товаров' : 'Выберите товар'}
             </option>
-            {products.map((p) => (
+            {filteredProducts.map((p) => (
               <option key={String((p as any).id)} value={String((p as any).id)}>
                 {(p.name ?? (p as any).title ?? 'Без названия') as string} —{' '}
                 {typeof p.price === 'number' ? money(p.price) : money(p.price ?? 0)}
               </option>
             ))}
           </select>
-        </div>
-      )}
 
-      {/* Добавление из списка услуг */}
-      {services.length > 0 && (
-        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            className="px-3 py-2 rounded-md border"
+            onClick={() => prodId && addProductById(prodId)}
+            disabled={!prodId}
+          >
+            Добавить товар
+          </button>
+        </div>
+      </section>
+
+      {/* Блок УСЛУГИ */}
+      <section className="space-y-3">
+        <h2 className="text-lg font-semibold">Добавить услугу</h2>
+        <div className="flex flex-wrap items-center gap-3">
           <select
             className="border rounded-md px-3 py-2"
+            value={servCategory}
             onChange={(e) => {
-              const selected = services.find(
-                (s) => String((s as any).id) === e.target.value
-              );
-              addService(selected);
-              e.currentTarget.selectedIndex = 0; // сброс выбора
+              setServCategory(e.target.value);
+              setServId('');
             }}
-            defaultValue=""
+            disabled={services.length === 0}
+          >
+            <option value="">Все категории</option>
+            {serviceCategories.map((c) => (
+              <option key={c} value={c}>{c}</option>
+            ))}
+          </select>
+
+          <select
+            className="border rounded-md px-3 py-2 min-w-[280px]"
+            value={servId}
+            onChange={(e) => setServId(e.target.value)}
+            disabled={filteredServices.length === 0}
           >
             <option value="" disabled>
-              Добавить услугу…
+              {services.length === 0 ? 'Нет услуг' : 'Выберите услугу'}
             </option>
-            {services.map((s) => (
+            {filteredServices.map((s) => (
               <option key={String((s as any).id)} value={String((s as any).id)}>
                 {(s.name ?? (s as any).title ?? 'Без названия') as string} —{' '}
                 {typeof s.price === 'number' ? money(s.price) : money(s.price ?? 0)}
               </option>
             ))}
           </select>
+
+          <button
+            type="button"
+            className="px-3 py-2 rounded-md border"
+            onClick={() => servId && addServiceById(servId)}
+            disabled={!servId}
+          >
+            Добавить услугу
+          </button>
         </div>
-      )}
+      </section>
 
       {/* Таблица позиций */}
       <div className="rounded-2xl border divide-y">
@@ -172,15 +252,28 @@ export default function OrderForm({ products = [], services = [], onSubmit }: Pr
         )}
       </div>
 
-      {/* Итого + сабмит */}
+      {/* Итого + сабмит + статусы */}
       <div className="flex items-center justify-between">
         <div className="text-sm text-muted-foreground">Итого</div>
         <div className="text-xl font-semibold">{money(total)}</div>
       </div>
 
+      {error ? (
+        <div className="text-sm text-red-600">{error}</div>
+      ) : null}
+      {createdId ? (
+        <div className="text-sm text-green-600">
+          Заказ создан: {createdId}
+        </div>
+      ) : null}
+
       <div className="flex justify-end">
-        <button type="submit" className="px-4 py-2 rounded-md border">
-          Создать заказ
+        <button
+          type="submit"
+          className="px-4 py-2 rounded-md border"
+          disabled={items.length === 0 || submitting}
+        >
+          {submitting ? 'Создаём…' : 'Создать заказ'}
         </button>
       </div>
     </form>
