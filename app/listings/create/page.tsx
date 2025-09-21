@@ -1,7 +1,7 @@
 import React from 'react';
 import { auth } from '@clerk/nextjs/server';
 import AuthRequired from '@/components/AuthRequired';
-import ListingCreateForm from './ui/ListingCreateForm';
+import ListingCreateForm from './ListingCreateForm'; // ← без /ui
 
 export const dynamic = 'force-dynamic';
 
