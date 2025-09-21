@@ -1,4 +1,3 @@
-// app/orders/page.tsx
 import React from 'react';
 import { auth } from '@clerk/nextjs/server';
 import { getSupabaseServer } from '@/lib/supabase-server';
@@ -13,7 +12,7 @@ type OrderRow = {
   amount: number;
   is_paid: boolean;
   paid_at: string | null;
-  status: string; // enum в БД
+  status: string;
   user_id: string | null;
 };
 
@@ -24,6 +23,7 @@ async function getOrders(userId: string): Promise<OrderRow[]> {
     .select('id, created_at, amount, is_paid, paid_at, status, user_id')
     .eq('user_id', userId)
     .order('created_at', { ascending: false });
+
   if (error) {
     console.error('[orders:list] ', error.message);
     return [];
@@ -57,7 +57,7 @@ export default async function OrdersPage() {
           {orders.map((o) => (
             <a
               key={o.id}
-              href={`/orders/${o.id}`}
+              href={`/orders/${o.id}`}                // ⬅️ каждая строка кликабельна
               className="flex items-center gap-4 p-4 hover:bg-muted/30 transition"
             >
               <div className="w-40 text-sm text-muted-foreground">
