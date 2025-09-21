@@ -11,6 +11,16 @@ export const dynamic = 'force-dynamic';
 
 async function getProducts(): Promise<Product[]> {
   const supabase = getSupabaseServer();
+
+  // 👇 Узкое место: getSupabaseServer может вернуть null — обработаем это явно
+  if (!supabase) {
+    console.error(
+      '[products] Supabase client is not configured. ' +
+        'Проверь .env: NEXT_PUBLIC_SUPABASE_URL и NEXT_PUBLIC_SUPABASE_ANON_KEY (или серверные ключи) '
+    );
+    return [];
+  }
+
   const { data, error } = await supabase
     .from('products')
     .select('*')
@@ -21,7 +31,6 @@ async function getProducts(): Promise<Product[]> {
     return [];
   }
 
-  // Приведём тип к Product[], если нужно — здесь можно сделать маппинг полей
   return (data as unknown as Product[]) ?? [];
 }
 
@@ -59,9 +68,12 @@ export default async function ProductsPage() {
           {products.map((p) => (
             <Card key={p.id}>
               <Card.Header>
-                <Card.Title className="line-clamp-2">{p.name ?? p.title ?? 'Без названия'}</Card.Title>
+                <Card.Title className="line-clamp-2">
+                  {p.name ?? p.title ?? 'Без названия'}
+                </Card.Title>
                 <Card.Description>{p.category ?? ''}</Card.Description>
               </Card.Header>
+
               {p.imageUrl ? (
                 <Card.Media>
                   {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -72,16 +84,22 @@ export default async function ProductsPage() {
                   />
                 </Card.Media>
               ) : null}
+
               <Card.Content>
                 <div className="flex items-center justify-between">
                   <span className="text-base font-medium">
                     {typeof p.price === 'number' ? money(p.price) : p.price ?? '—'}
                   </span>
-                  {p.city ? <span className="text-sm text-muted-foreground">{p.city}</span> : null}
+                  {p.city ? (
+                    <span className="text-sm text-muted-foreground">{p.city}</span>
+                  ) : null}
                 </div>
               </Card.Content>
-              {/* Если у Card есть actions — можно добавить кнопку */}
-              {/* <Card.Footer><Link href={`/catalog/products/${p.id}`} className="underline">Подробнее</Link></Card.Footer> */}
+              {/* <Card.Footer>
+                <Link href={`/catalog/products/${p.id}`} className="underline">
+                  Подробнее
+                </Link>
+              </Card.Footer> */}
             </Card>
           ))}
         </div>
