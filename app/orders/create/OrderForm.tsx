@@ -1,7 +1,7 @@
 // app/orders/create/OrderForm.tsx
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { Product, Service } from '@/lib/types';
 import { money } from '@/lib/format';
 
@@ -12,69 +12,89 @@ type Line =
 type Props = {
   products?: Product[];
   services?: Service[];
+  preProductId?: string;
+  preServiceId?: string;
 };
 
-export default function OrderForm({ products = [], services = [] }: Props) {
-  // ---- состояние заказа
+export default function OrderForm({
+  products = [],
+  services = [],
+  preProductId,
+  preServiceId,
+}: Props) {
   const [items, setItems] = useState<Line[]>([]);
-  const total = useMemo(
-    () => items.reduce((sum, l) => sum + l.price * l.qty, 0),
-    [items]
-  );
+  const total = useMemo(() => items.reduce((s, l) => s + l.price * l.qty, 0), [items]);
 
-  // ---- справочники категорий
+  // ---- категории
   const productCategories = useMemo(() => {
     const set = new Set<string>();
-    products.forEach((p) =>
-      set.add((p.category ?? 'Без категории').toString())
-    );
+    products.forEach((p) => set.add((p.category ?? 'Без категории').toString()));
     return Array.from(set).sort();
   }, [products]);
 
   const serviceCategories = useMemo(() => {
     const set = new Set<string>();
-    services.forEach((s) =>
-      set.add((s.category ?? 'Без категории').toString())
-    );
+    services.forEach((s) => set.add((s.category ?? 'Без категории').toString()));
     return Array.from(set).sort();
   }, [services]);
 
-  // ---- выбранные значения
+  // ---- выбранные значения селектов
   const [prodCategory, setProdCategory] = useState<string>('');
   const [prodId, setProdId] = useState<string>('');
   const [servCategory, setServCategory] = useState<string>('');
   const [servId, setServId] = useState<string>('');
 
-  const filteredProducts = useMemo(() => {
-    return products.filter((p) =>
-      prodCategory ? (p.category ?? 'Без категории') === prodCategory : true
-    );
-  }, [products, prodCategory]);
+  const filteredProducts = useMemo(
+    () => products.filter((p) => (prodCategory ? (p.category ?? 'Без категории') === prodCategory : true)),
+    [products, prodCategory]
+  );
+  const filteredServices = useMemo(
+    () => services.filter((s) => (servCategory ? (s.category ?? 'Без категории') === servCategory : true)),
+    [services, servCategory]
+  );
 
-  const filteredServices = useMemo(() => {
-    return services.filter((s) =>
-      servCategory ? (s.category ?? 'Без категории') === servCategory : true
-    );
-  }, [services, servCategory]);
-
-  // ---- добавление позиций
+  // ---- add helpers
   function addProductById(id: string) {
     const p = products.find((x) => String((x as any).id) === id);
     if (!p) return;
-    const price =
-      typeof p.price === 'number' ? p.price : Number(p.price ?? 0) || 0;
+    const price = typeof p.price === 'number' ? p.price : Number(p.price ?? 0) || 0;
     const name = (p.name ?? (p as any).title ?? 'Без названия').toString();
     setItems((prev) => [...prev, { kind: 'product', id: String((p as any).id), name, price, qty: 1 }]);
   }
-
   function addServiceById(id: string) {
     const s = services.find((x) => String((x as any).id) === id);
     if (!s) return;
-    const price =
-      typeof s.price === 'number' ? s.price : Number(s.price ?? 0) || 0;
+    const price = typeof s.price === 'number' ? s.price : Number(s.price ?? 0) || 0;
     const name = (s.name ?? (s as any).title ?? 'Без названия').toString();
     setItems((prev) => [...prev, { kind: 'service', id: String((s as any).id), name, price, qty: 1 }]);
   }
+
+  // ---- авто-добавление по query (?product=... / ?service=...)
+  const preAdded = useRef(false);
+  useEffect(() => {
+    if (preAdded.current) return;
+    let touched = false;
+
+    if (preProductId) {
+      // выставим категорию, чтобы в селекте был правильный список
+      const p = products.find((x) => String((x as any).id) === preProductId);
+      if (p) {
+        setProdCategory((p.category ?? 'Без категории').toString());
+        addProductById(preProductId);
+        touched = true;
+      }
+    }
+    if (preServiceId) {
+      const s = services.find((x) => String((x as any).id) === preServiceId);
+      if (s) {
+        setServCategory((s.category ?? 'Без категории').toString());
+        addServiceById(preServiceId);
+        touched = true;
+      }
+    }
+
+    if (touched) preAdded.current = true;
+  }, [preProductId, preServiceId, products, services]);
 
   // ---- изменение/удаление
   function changeQty(index: number, qty: number) {
@@ -88,7 +108,7 @@ export default function OrderForm({ products = [], services = [] }: Props) {
     setItems((prev) => prev.filter((_, i) => i !== index));
   }
 
-  // ---- сабмит: создаём заказ через API
+  // ---- сабмит
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [createdId, setCreatedId] = useState<string | null>(null);
@@ -103,10 +123,7 @@ export default function OrderForm({ products = [], services = [] }: Props) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ items }),
       });
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(text || 'Ошибка создания заказа');
-      }
+      if (!res.ok) throw new Error(await res.text());
       const data = (await res.json()) as { orderId: string };
       setCreatedId(data.orderId);
       setItems([]);
@@ -120,7 +137,7 @@ export default function OrderForm({ products = [], services = [] }: Props) {
   // ---- UI
   return (
     <form onSubmit={handleSubmit} className="space-y-8">
-      {/* Блок ТОВАРЫ */}
+      {/* ТОВАРЫ */}
       <section className="space-y-3">
         <h2 className="text-lg font-semibold">Добавить товар</h2>
         <div className="flex flex-wrap items-center gap-3">
@@ -129,7 +146,7 @@ export default function OrderForm({ products = [], services = [] }: Props) {
             value={prodCategory}
             onChange={(e) => {
               setProdCategory(e.target.value);
-              setProdId(''); // сброс выбранного товара при смене категории
+              setProdId('');
             }}
             disabled={products.length === 0}
           >
@@ -167,7 +184,7 @@ export default function OrderForm({ products = [], services = [] }: Props) {
         </div>
       </section>
 
-      {/* Блок УСЛУГИ */}
+      {/* УСЛУГИ */}
       <section className="space-y-3">
         <h2 className="text-lg font-semibold">Добавить услугу</h2>
         <div className="flex flex-wrap items-center gap-3">
@@ -214,7 +231,7 @@ export default function OrderForm({ products = [], services = [] }: Props) {
         </div>
       </section>
 
-      {/* Таблица позиций */}
+      {/* ПОЗИЦИИ */}
       <div className="rounded-2xl border divide-y">
         {items.length === 0 ? (
           <div className="p-4 text-sm text-muted-foreground">
@@ -252,19 +269,15 @@ export default function OrderForm({ products = [], services = [] }: Props) {
         )}
       </div>
 
-      {/* Итого + сабмит + статусы */}
+      {/* ИТОГО / САБМИТ */}
       <div className="flex items-center justify-between">
         <div className="text-sm text-muted-foreground">Итого</div>
         <div className="text-xl font-semibold">{money(total)}</div>
       </div>
 
-      {error ? (
-        <div className="text-sm text-red-600">{error}</div>
-      ) : null}
+      {error ? <div className="text-sm text-red-600">{error}</div> : null}
       {createdId ? (
-        <div className="text-sm text-green-600">
-          Заказ создан: {createdId}
-        </div>
+        <div className="text-sm text-green-600">Заказ создан: {createdId}</div>
       ) : null}
 
       <div className="flex justify-end">
