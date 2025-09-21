@@ -1,92 +1,74 @@
-// app/catalog/services/page.tsx
+// app/catalog/products/page.tsx
 import React from 'react';
 import Card from '@/components/Card';
 import { money } from '@/lib/format';
+import type { Product } from '@/lib/types';
 import { getSupabaseServer } from '@/lib/supabase-server';
 import { auth } from '@clerk/nextjs/server';
-import { SignInButton } from '@clerk/nextjs';
+import AuthRequired from '@/components/AuthRequired';
 
 export const dynamic = 'force-dynamic';
 
-// Локальный тип, чтобы не зависеть от '@/lib/types'
-type ServiceRow = {
-  id: string | number;
-  name?: string;
-  title?: string;
-  category?: string;
-  imageUrl?: string;
-  image_url?: string;
-  price?: number | string | null;
-  city?: string | null;
-  created_at?: string;
-};
-
-async function getServices(): Promise<ServiceRow[]> {
+async function getProducts(): Promise<Product[]> {
   const supabase = getSupabaseServer();
 
   if (!supabase) {
     console.error(
-      '[services] Supabase client is not configured. ' +
+      '[products] Supabase client is not configured. ' +
         'Проверь .env: NEXT_PUBLIC_SUPABASE_URL и NEXT_PUBLIC_SUPABASE_ANON_KEY (или серверные ключи).'
     );
     return [];
   }
 
   const { data, error } = await supabase
-    .from('services')
+    .from('products')
     .select('*')
     .order('created_at', { ascending: false });
 
   if (error) {
-    console.error('[services] supabase error:', error.message);
+    console.error('[products] supabase error:', error.message);
     return [];
   }
 
-  return (data as unknown as ServiceRow[]) ?? [];
+  return (data as unknown as Product[]) ?? [];
 }
 
-export default async function ServicesPage() {
+export default async function ProductsPage() {
   const { userId } = auth();
 
   if (!userId) {
     return (
       <div className="mx-auto max-w-5xl px-4 py-10">
-        <h1 className="text-2xl font-semibold mb-4">Услуги</h1>
-        <div className="rounded-2xl border p-6">
-          <p className="mb-2">Доступно только авторизованным пользователям.</p>
-          <div className="text-sm">
-            <SignInButton mode="redirect" forceRedirectUrl="/catalog/services">
-              <span className="underline cursor-pointer">Войти</span>
-            </SignInButton>
-          </div>
-        </div>
+        <h1 className="text-2xl font-semibold mb-4">Каталог</h1>
+        <AuthRequired redirectTo="/catalog/products" />
       </div>
     );
   }
 
-  const services = await getServices();
+  const products = await getProducts();
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-10">
-      <h1 className="text-2xl font-semibold mb-6">Услуги</h1>
+      <h1 className="text-2xl font-semibold mb-6">Каталог</h1>
 
-      {services.length === 0 ? (
+      {products.length === 0 ? (
         <div className="rounded-2xl border p-6 text-sm text-muted-foreground">
-          Пока нет услуг.
+          Пока нет товаров.
         </div>
       ) : (
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-          {services.map((s) => {
-            const title = s.name ?? s.title ?? 'Без названия';
-            const category = s.category ?? '';
-            const imageUrl = s.imageUrl ?? s.image_url ?? '';
+          {products.map((p) => {
+            const title = (p as any).name ?? (p as any).title ?? 'Без названия';
+            const category = (p as any).category ?? '';
+            const imageUrl = (p as any).imageUrl ?? (p as any).image_url ?? '';
             const price =
-              typeof s.price === 'number' ? money(s.price) : s.price ?? '—';
-            const city = s.city ?? '';
+              typeof (p as any).price === 'number'
+                ? money((p as any).price as number)
+                : (p as any).price ?? '—';
+            const city = (p as any).city ?? '';
 
             return (
-              <Card key={s.id}>
-                {/* Заголовок */}
+              <Card key={(p as any).id}>
                 <div className="p-4">
                   <h3 className="text-base font-semibold leading-tight line-clamp-2">
                     {title}
@@ -98,7 +80,6 @@ export default async function ServicesPage() {
                   ) : null}
                 </div>
 
-                {/* Картинка (если есть) */}
                 {imageUrl ? (
                   <div className="px-4">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -110,7 +91,6 @@ export default async function ServicesPage() {
                   </div>
                 ) : null}
 
-                {/* Контент */}
                 <div className="p-4">
                   <div className="flex items-center justify-between">
                     <span className="text-base font-medium">{price}</span>
