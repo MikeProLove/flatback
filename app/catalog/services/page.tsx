@@ -5,31 +5,12 @@ import { money } from '@/lib/format';
 import { getSupabaseServer } from '@/lib/supabase-server';
 import { auth } from '@clerk/nextjs/server';
 import AuthRequired from '@/components/AuthRequired';
+import type { Service } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
 
-type ServiceRow = {
-  id: string | number;
-  name?: string;
-  title?: string;
-  category?: string;
-  imageUrl?: string;
-  image_url?: string;
-  price?: number | string | null;
-  city?: string | null;
-  created_at?: string;
-};
-
-async function getServices(): Promise<ServiceRow[]> {
+async function getServices(): Promise<Service[]> {
   const supabase = getSupabaseServer();
-
-  if (!supabase) {
-    console.error(
-      '[services] Supabase client is not configured. ' +
-        'Проверь .env: NEXT_PUBLIC_SUPABASE_URL и NEXT_PUBLIC_SUPABASE_ANON_KEY (или серверные ключи).'
-    );
-    return [];
-  }
 
   const { data, error } = await supabase
     .from('services')
@@ -41,7 +22,7 @@ async function getServices(): Promise<ServiceRow[]> {
     return [];
   }
 
-  return (data as unknown as ServiceRow[]) ?? [];
+  return (data as unknown as Service[]) ?? [];
 }
 
 export default async function ServicesPage() {
@@ -69,23 +50,23 @@ export default async function ServicesPage() {
       ) : (
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
           {services.map((s) => {
-            const title = s.name ?? s.title ?? 'Без названия';
-            const category = s.category ?? '';
-            const imageUrl = s.imageUrl ?? s.image_url ?? '';
+            const title = (s as any).name ?? (s as any).title ?? 'Без названия';
+            const category = (s as any).category ?? '';
+            const imageUrl = (s as any).imageUrl ?? (s as any).image_url ?? '';
             const price =
-              typeof s.price === 'number' ? money(s.price) : s.price ?? '—';
-            const city = s.city ?? '';
+              typeof (s as any).price === 'number'
+                ? money((s as any).price as number)
+                : (s as any).price ?? '—';
+            const city = (s as any).city ?? '';
 
             return (
-              <Card key={s.id}>
+              <Card key={(s as any).id}>
                 <div className="p-4">
                   <h3 className="text-base font-semibold leading-tight line-clamp-2">
                     {title}
                   </h3>
                   {category ? (
-                    <p className="mt-1 text-sm text-muted-foreground">
-                      {category}
-                    </p>
+                    <p className="mt-1 text-sm text-muted-foreground">{category}</p>
                   ) : null}
                 </div>
 
@@ -104,9 +85,7 @@ export default async function ServicesPage() {
                   <div className="flex items-center justify-between">
                     <span className="text-base font-medium">{price}</span>
                     {city ? (
-                      <span className="text-sm text-muted-foreground">
-                        {city}
-                      </span>
+                      <span className="text-sm text-muted-foreground">{city}</span>
                     ) : null}
                   </div>
                 </div>
