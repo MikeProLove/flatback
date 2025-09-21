@@ -1,6 +1,7 @@
 // app/orders/create/OrderForm.tsx
 'use client';
 
+import { useRouter } from 'next/navigation';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { Product, Service } from '@/lib/types';
 import { money } from '@/lib/format';
@@ -24,6 +25,7 @@ export default function OrderForm({
 }: Props) {
   const [items, setItems] = useState<Line[]>([]);
   const total = useMemo(() => items.reduce((s, l) => s + l.price * l.qty, 0), [items]);
+  const router = useRouter();
 
   // ---- категории
   const productCategories = useMemo(() => {
@@ -114,25 +116,24 @@ export default function OrderForm({
   const [createdId, setCreatedId] = useState<string | null>(null);
 
   async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setError(null);
-    setSubmitting(true);
-    try {
-      const res = await fetch('/api/orders', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ items }),
-      });
-      if (!res.ok) throw new Error(await res.text());
-      const data = (await res.json()) as { orderId: string };
-      setCreatedId(data.orderId);
-      setItems([]);
-    } catch (err: any) {
-      setError(err.message || 'Ошибка');
-    } finally {
-      setSubmitting(false);
-    }
+  e.preventDefault();
+  setError(null);
+  setSubmitting(true);
+  try {
+    const res = await fetch('/api/orders', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ items }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    const data = (await res.json()) as { orderId: string };
+    router.push(`/orders/${data.orderId}`); // ⬅️ сразу на карточку заказа
+  } catch (err: any) {
+    setError(err.message || 'Ошибка');
+  } finally {
+    setSubmitting(false);
   }
+}
 
   // ---- UI
   return (
