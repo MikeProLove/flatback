@@ -40,7 +40,12 @@ export default function RootLayout({
               <Link href="/catalog/services">Услуги</Link>
               <Link href="/orders/create">Новый заказ</Link>
             </nav>
-
+            <nav className="flex items-center gap-4 text-sm">
+              <a href="/catalog/products" className="hover:underline">Товары</a>
+              <a href="/catalog/services" className="hover:underline">Услуги</a>
+              <a href="/orders" className="hover:underline">Заказы</a>       {/* ⬅️ добавили */}
+              <a href="/orders/create" className="hover:underline">Новый заказ</a>
+            </nav>
             <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
               <SignedOut>
                 {/* Кнопки аутентификации Clerk (модалка, без отдельных маршрутов) */}
