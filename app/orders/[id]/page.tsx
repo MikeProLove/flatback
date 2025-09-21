@@ -120,28 +120,36 @@ export default async function OrderDetailPage({
         </div>
 
         <div className="text-right">
-          <div className="text-sm text-muted-foreground">Итого</div>
-          <div className="text-2xl font-semibold">
-            {money(Number(order!.amount) || 0)}
-          </div>
-          <div className="text-sm mt-1">
-            Статус:{' '}
-            <span className="font-medium">{statusLabel(order!.status)}</span>
-            {' · '}
-            {order!.is_paid ? (
-              <span className="text-green-600">оплачен</span>
-            ) : (
-              <span className="text-amber-600">не оплачен</span>
-            )}
-          </div>
+  <div className="text-sm text-muted-foreground">Итого</div>
+  <div className="text-2xl font-semibold">{money(Number(order!.amount) || 0)}</div>
+  <div className="text-sm mt-1">
+    Статус: <span className="font-medium">{statusLabel(order!.status)}</span>
+    {' · '}
+    {order!.is_paid ? (
+      <span className="text-green-600">оплачен</span>
+    ) : (
+      <span className="text-amber-600">не оплачен</span>
+    )}
+  </div>
 
-          <OrderActions
-            orderId={order!.id}
-            isPaid={order!.is_paid}
-            status={order!.status as any}
-          />
-        </div>
-      </div>
+  {/* КНОПКА РЕДАКТИРОВАТЬ — только для pending и не оплачен */}
+  {!order!.is_paid && order!.status === 'pending' ? (
+    <div className="mt-2">
+      <a
+        href={`/orders/${order!.id}/edit`}
+        className="px-3 py-2 rounded-md border text-sm inline-block"
+      >
+        Изменить состав
+      </a>
+    </div>
+  ) : null}
+
+  <OrderActions
+    orderId={order!.id}
+    isPaid={order!.is_paid}
+    status={order!.status as any}
+  />
+</div>
 
       <div className="rounded-2xl border divide-y">
         {items.length === 0 ? (
