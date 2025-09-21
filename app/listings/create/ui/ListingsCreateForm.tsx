@@ -8,24 +8,21 @@ type PhotoPreview = { file: File; url: string };
 export default function ListingCreateForm() {
   const router = useRouter();
 
-  // локальный превью фото
   const [photos, setPhotos] = useState<PhotoPreview[]>([]);
   const [tourName, setTourName] = useState<string>('');
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // --- чат-заглушка
+  // чат-заглушка
   const [chat, setChat] = useState<{ role: 'user' | 'bot'; text: string }[]>([
-    { role: 'bot', text: 'Привет! Прикрепите выписку из Росреестра — в проде я заполню поля автоматически.' },
+    { role: 'bot', text: 'Привет! Прикрепите выписку из ЕГРН — в проде я заполню поля автоматически.' },
   ]);
   const [msg, setMsg] = useState('');
 
   function onPickPhotos(files: FileList | null) {
     if (!files) return;
     const arr: PhotoPreview[] = [];
-    Array.from(files).forEach((f) => {
-      arr.push({ file: f, url: URL.createObjectURL(f) });
-    });
+    Array.from(files).forEach((f) => arr.push({ file: f, url: URL.createObjectURL(f) }));
     setPhotos((prev) => [...prev, ...arr]);
   }
 
@@ -37,12 +34,9 @@ export default function ListingCreateForm() {
     e.preventDefault();
     setError(null);
     setSending(true);
-
     try {
       const form = new FormData(e.currentTarget);
-      // добавляем фото
       photos.forEach((p) => form.append('photos', p.file));
-
       const res = await fetch('/api/listings', { method: 'POST', body: form });
       if (!res.ok) throw new Error(await res.text());
       const data = (await res.json()) as { id: string };
@@ -74,18 +68,12 @@ export default function ListingCreateForm() {
 
   return (
     <form onSubmit={handleSubmit} className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-      {/* Левая часть — поля объявления */}
+      {/* Левая колонка */}
       <div className="lg:col-span-2 space-y-6">
-
         {/* Фото */}
         <section className="rounded-2xl border p-4 space-y-3">
           <div className="font-medium">Фотографии</div>
-          <input
-            type="file"
-            accept="image/*"
-            multiple
-            onChange={(e) => onPickPhotos(e.target.files)}
-          />
+          <input type="file" accept="image/*" multiple onChange={(e) => onPickPhotos(e.target.files)} />
           {photos.length ? (
             <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
               {photos.map((p, i) => (
@@ -94,9 +82,7 @@ export default function ListingCreateForm() {
               ))}
             </div>
           ) : (
-            <p className="text-sm text-muted-foreground">
-              Загрузите 5–15 качественных фото (кухня, спальня, санузел, вид из окна).
-            </p>
+            <p className="text-sm text-muted-foreground">Загрузите 5–15 фото (кухня, спальня, санузел, вид из окна).</p>
           )}
         </section>
 
@@ -125,7 +111,7 @@ export default function ListingCreateForm() {
         <section className="rounded-2xl border p-4 grid sm:grid-cols-2 gap-3">
           <div className="space-y-2">
             <label className="text-sm">Заголовок</label>
-            <input name="title" type="text" className="w-full border rounded-md px-3 py-2" placeholder="Светлая 2-к квартира у метро…" />
+            <input name="title" type="text" className="w-full border rounded-md px-3 py-2" placeholder="Светлая 2-к у метро…" />
           </div>
           <div className="space-y-2">
             <label className="text-sm">Стоимость (₽/мес.)</label>
@@ -164,7 +150,7 @@ export default function ListingCreateForm() {
         <section className="rounded-2xl border p-4 grid sm:grid-cols-2 gap-3">
           <div className="space-y-2 sm:col-span-2">
             <label className="text-sm">Адрес</label>
-            <input name="address" type="text" className="w-full border rounded-md px-3 py-2" placeholder="Город, улица, дом, корпус, квартира…" />
+            <input name="address" type="text" className="w-full border rounded-md px-3 py-2" placeholder="Город, улица, дом…" />
           </div>
           <div className="space-y-2">
             <label className="text-sm">Город</label>
@@ -202,54 +188,38 @@ export default function ListingCreateForm() {
             <label className="text-sm">Мин. срок (мес.)</label>
             <input name="min_term_months" type="number" className="w-full border rounded-md px-3 py-2" />
           </div>
-          <label className="flex items-center gap-2">
-            <input name="utilities_included" type="checkbox" />
-            Коммунальные платежи включены
-          </label>
-          <label className="flex items-center gap-2">
-            <input name="pets_allowed" type="checkbox" />
-            Можно с животными
-          </label>
-          <label className="flex items-center gap-2">
-            <input name="kids_allowed" type="checkbox" />
-            Можно с детьми
-          </label>
+          <label className="flex items-center gap-2"><input name="utilities_included" type="checkbox" /> Коммуналка включена</label>
+          <label className="flex items-center gap-2"><input name="pets_allowed" type="checkbox" /> Можно с животными</label>
+          <label className="flex items-center gap-2"><input name="kids_allowed" type="checkbox" /> Можно с детьми</label>
           <div className="space-y-2 sm:col-span-2">
             <label className="text-sm">Доступно с</label>
             <input name="available_from" type="date" className="w-full border rounded-md px-3 py-2" />
           </div>
         </section>
 
-        {/* Характеристики квартиры/дома (как на ЦИАН) */}
+        {/* Характеристики */}
         <section className="rounded-2xl border p-4 grid sm:grid-cols-2 gap-3">
           <div className="space-y-2">
             <label className="text-sm">Тип дома</label>
             <select name="building_type" className="w-full border rounded-md px-3 py-2">
               <option value="">Не указано</option>
-              <option>панель</option>
-              <option>монолит</option>
-              <option>кирпич</option>
-              <option>монолит-кирпич</option>
-              <option>блочный</option>
+              <option>панель</option><option>монолит</option><option>кирпич</option>
+              <option>монолит-кирпич</option><option>блочный</option>
             </select>
           </div>
           <div className="space-y-2">
             <label className="text-sm">Ремонт</label>
             <select name="renovation" className="w-full border rounded-md px-3 py-2">
               <option value="">Не указано</option>
-              <option>без ремонта</option>
-              <option>косметический</option>
-              <option>евроремонт</option>
-              <option>дизайнерский</option>
+              <option>без ремонта</option><option>косметический</option>
+              <option>евроремонт</option><option>дизайнерский</option>
             </select>
           </div>
           <div className="space-y-2">
             <label className="text-sm">Мебель</label>
             <select name="furniture" className="w-full border rounded-md px-3 py-2">
               <option value="">Не указано</option>
-              <option>полная</option>
-              <option>частичная</option>
-              <option>нет</option>
+              <option>полная</option><option>частичная</option><option>нет</option>
             </select>
           </div>
 
@@ -266,16 +236,12 @@ export default function ListingCreateForm() {
             </div>
           </fieldset>
 
-          <label className="flex items-center gap-2">
-            <input name="balcony" type="checkbox" /> Балкон/лоджия
-          </label>
+          <label className="flex items-center gap-2"><input name="balcony" type="checkbox" /> Балкон/лоджия</label>
           <div className="space-y-2">
             <label className="text-sm">Санузел</label>
             <select name="bathroom" className="w-full border rounded-md px-3 py-2">
               <option value="">Не указано</option>
-              <option>совмещенный</option>
-              <option>раздельный</option>
-              <option>несколько</option>
+              <option>совмещенный</option><option>раздельный</option><option>несколько</option>
             </select>
           </div>
 
@@ -287,34 +253,23 @@ export default function ListingCreateForm() {
             <label className="text-sm">Парковка</label>
             <select name="parking" className="w-full border rounded-md px-3 py-2">
               <option value="">Не указано</option>
-              <option>нет</option>
-              <option>двор</option>
-              <option>подземный</option>
-              <option>охраняемый</option>
+              <option>нет</option><option>двор</option><option>подземный</option><option>охраняемый</option>
             </select>
           </div>
 
-          <label className="flex items-center gap-2">
-            <input name="internet" type="checkbox" /> Интернет
-          </label>
-          <label className="flex items-center gap-2">
-            <input name="concierge" type="checkbox" /> Консьерж
-          </label>
-          <label className="flex items-center gap-2">
-            <input name="security" type="checkbox" /> Охрана/видеонаблюдение
-          </label>
-          <label className="flex items-center gap-2">
-            <input name="lift" type="checkbox" /> Лифт
-          </label>
+          <label className="flex items-center gap-2"><input name="internet" type="checkbox" /> Интернет</label>
+          <label className="flex items-center gap-2"><input name="concierge" type="checkbox" /> Консьерж</label>
+          <label className="flex items-center gap-2"><input name="security" type="checkbox" /> Охрана/видео</label>
+          <label className="flex items-center gap-2"><input name="lift" type="checkbox" /> Лифт</label>
         </section>
 
         {/* Описание */}
         <section className="rounded-2xl border p-4 space-y-2">
           <label className="text-sm">Описание</label>
-          <textarea name="description" rows={6} className="w-full border rounded-md px-3 py-2" placeholder="Опишите квартиру, двор, инфраструктуру, условия аренды…" />
+          <textarea name="description" rows={6} className="w-full border rounded-md px-3 py-2" placeholder="Опишите квартиру, двор, инфраструктуру, условия…" />
         </section>
 
-        {/* Отправка */}
+        {/* Submit */}
         {error ? <div className="text-sm text-red-600">{error}</div> : null}
         <div className="flex justify-end">
           <button type="submit" disabled={sending} className="px-4 py-2 rounded-md border">
@@ -323,29 +278,20 @@ export default function ListingCreateForm() {
         </div>
       </div>
 
-      {/* Правая колонка — ИИ-чат (заглушка) */}
+      {/* Правая колонка — чат */}
       <aside className="space-y-3">
         <div className="rounded-2xl border p-4">
           <div className="font-medium mb-2">ИИ-помощник (заглушка)</div>
           <div className="text-sm text-muted-foreground mb-3">
-            Прикрепите документы (выписка из ЕГРН), напишите «Заполни», и нажмите «Отправить» — сообщение улетит в заглушку.
+            Прикрепите документы (ЕГРН), напишите «Заполни», нажмите отправить — сообщение уйдёт в заглушку.
           </div>
 
           <div className="space-y-2">
             <input type="file" />
-            <textarea
-              rows={3}
-              value={msg}
-              onChange={(e) => setMsg(e.target.value)}
-              className="w-full border rounded-md px-3 py-2"
-              placeholder="Например: заполни адрес и параметры из выписки…"
-            />
-            <button type="button" onClick={sendChat} className="px-3 py-2 rounded-md border text-sm">
-              Отправить в чат
-            </button>
+            <textarea rows={3} value={msg} onChange={(e) => setMsg(e.target.value)} className="w-full border rounded-md px-3 py-2" />
+            <button type="button" onClick={sendChat} className="px-3 py-2 rounded-md border text-sm">Отправить в чат</button>
           </div>
 
-          {/* Лента сообщений */}
           <div className="mt-4 space-y-2 max-h-64 overflow-auto">
             {chat.map((m, i) => (
               <div key={i} className="text-sm">
