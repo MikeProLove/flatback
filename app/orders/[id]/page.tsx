@@ -94,11 +94,15 @@ export default async function OrderDetailPage({ params }: { params: { id: string
         </div>
 
         <div className="text-right">
-          <div className="text-sm text-muted-foreground">Итого</div>
-          <div className="text-2xl font-semibold">{money(Number(order.amount) || 0)}</div>
-          <OrderActions orderId={order.id} isPaid={order.is_paid} />
-        </div>
-      </div>
+  <div className="text-sm text-muted-foreground">Итого</div>
+  <div className="text-2xl font-semibold">{money(Number(order.amount) || 0)}</div>
+  <div className="text-sm mt-1">
+    Статус: <span className="font-medium">{statusLabel(order.status)}</span>
+    {' · '}
+    {order.is_paid ? <span className="text-green-600">оплачен</span> : <span className="text-amber-600">не оплачен</span>}
+  </div>
+  <OrderActions orderId={order.id} isPaid={order.is_paid} status={order.status as any} />
+</div>
 
       <div className="rounded-2xl border divide-y">
         {items.length === 0 ? (
@@ -121,4 +125,15 @@ export default async function OrderDetailPage({ params }: { params: { id: string
       </div>
     </div>
   );
+}
+function statusLabel(s: string) {
+  switch (s) {
+    case 'pending': return 'Ожидает';
+    case 'paid': return 'Оплачен';
+    case 'assigned': return 'Передан исполнителю';
+    case 'in_progress': return 'В работе';
+    case 'completed': return 'Выполнен';
+    case 'cancelled': return 'Отменён';
+    default: return s;
+  }
 }
