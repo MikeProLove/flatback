@@ -2,7 +2,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import type { Product, Service } from './page';
+import type { Product, Service } from '@/lib/types';
 import { money } from '@/lib/money';
 
 type Props = {
