@@ -6,38 +6,76 @@ import { money } from '@/lib/format';
 
 export const dynamic = 'force-dynamic';
 
-type Listing = any;
+type Listing = {
+  id: string;
+  title: string | null;
+  address: string | null;
+  city: string | null;
+  district: string | null;
+  metro: string | null;
+  metro_distance_min: number | null;
+  rooms: number | null;
+  area_total: number | null;
+  area_living: number | null;
+  area_kitchen: number | null;
+  floor: number | null;
+  floors_total: number | null;
+  building_type: string | null;
+  renovation: string | null;
+  furniture: string | null;
+  bathroom: string | null;
+  ceiling_height: number | null;
+  parking: string | null;
+  internet: boolean | null;
+  lift: boolean | null;
+  balcony: boolean | null;
+  description: string | null;
+  price: number | null;
+  tour_url: string | null;
+  tour_file_path: string | null;
+  created_at: string;
+};
+
+type Photo = {
+  id: string;
+  listing_id: string;
+  url: string;
+  sort_order: number;
+};
 
 async function getListing(id: string) {
-  const supabase = getSupabaseServer();
-  const { data: listing } = await supabase
+  const sb = getSupabaseServer();
+
+  const { data: listing, error } = await sb
     .from('listings')
     .select('*')
     .eq('id', id)
     .maybeSingle();
 
-  if (!listing) return null;
+  if (error || !listing) return null;
 
-  const { data: photos } = await supabase
+  const { data: photos } = await sb
     .from('listing_photos')
-    .select('*')
+    .select('id,listing_id,url,sort_order')
     .eq('listing_id', id)
     .order('sort_order', { ascending: true });
 
-  return { listing, photos: photos ?? [] };
+  return { listing: listing as Listing, photos: (photos as Photo[]) ?? [] };
 }
 
 export default async function ListingPage({ params }: { params: { id: string } }) {
-  const result = await getListing(params.id);
-  if (!result) notFound();
-  const { listing, photos } = result as { listing: Listing; photos: any[] };
+  const data = await getListing(params.id);
+  if (!data) notFound();
+  const { listing, photos } = data;
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-10 space-y-6">
       <div className="flex items-start justify-between">
         <div>
           <h1 className="text-2xl font-semibold">{listing.title ?? 'Объявление'}</h1>
-          <div className="text-sm text-muted-foreground">{listing.address}</div>
+          <div className="text-sm text-muted-foreground">
+            {listing.address || listing.city || 'Адрес не указан'}
+          </div>
         </div>
         <div className="text-right">
           <div className="text-sm text-muted-foreground">Аренда</div>
@@ -45,15 +83,19 @@ export default async function ListingPage({ params }: { params: { id: string } }
         </div>
       </div>
 
-      {/* фото */}
-      {photos.length ? (
+      {/* фотогалерея */}
+      {photos.length > 0 ? (
         <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
           {photos.map((p) => (
             // eslint-disable-next-line @next/next/no-img-element
             <img key={p.id} src={p.url} alt="" className="w-full h-48 object-cover rounded-md" />
           ))}
         </div>
-      ) : null}
+      ) : (
+        <div className="rounded-2xl border p-4 text-sm text-muted-foreground">
+          Фотографии не загружены.
+        </div>
+      )}
 
       {/* параметры */}
       <div className="rounded-2xl border p-4 grid sm:grid-cols-2 lg:grid-cols-3 gap-3 text-sm">
@@ -74,11 +116,26 @@ export default async function ListingPage({ params }: { params: { id: string } }
         <div><b>Балкон:</b> {listing.balcony ? 'есть' : '—'}</div>
       </div>
 
-      {/* тур */}
-      {listing.tour_url ? (
+      {/* 3D-тур */}
+      {listing.tour_url || listing.tour_file_path ? (
+        <div className="rounded-2xl border p-4 space-y-2">
+          <div className="font-medium">3D-тур</div>
+          {listing.tour_url ? (
+            <a href={listing.tour_url} target="_blank" className="underline">Открыть ссылку тура</a>
+          ) : null}
+          {listing.tour_file_path ? (
+            <div className="text-sm">
+              Файл: <span className="text-muted-foreground">{listing.tour_file_path}</span>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {/* Описание */}
+      {listing.description ? (
         <div className="rounded-2xl border p-4">
-          <div className="font-medium mb-2">3D-тур</div>
-          <a href={listing.tour_url} target="_blank" className="underline">Открыть ссылку тура</a>
+          <div className="font-medium mb-1">Описание</div>
+          <div className="whitespace-pre-line text-sm">{listing.description}</div>
         </div>
       ) : null}
     </div>
