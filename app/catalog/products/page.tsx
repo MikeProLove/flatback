@@ -1,79 +1,91 @@
 // app/catalog/products/page.tsx
-import { SignedIn, SignedOut, SignInButton } from '@clerk/nextjs';
+import React from 'react';
 import Card from '@/components/Card';
 import { money } from '@/lib/format';
 import type { Product } from '@/lib/types';
 import { getSupabaseServer } from '@/lib/supabase-server';
+import { auth } from '@clerk/nextjs/server';
+import { SignInButton } from '@clerk/nextjs';
 
 export const dynamic = 'force-dynamic';
-export const revalidate = 0;
 
-export default async function ProductsPage() {
+async function getProducts(): Promise<Product[]> {
   const supabase = getSupabaseServer();
+  const { data, error } = await supabase
+    .from('products')
+    .select('*')
+    .order('created_at', { ascending: false });
 
-  let products: Product[] = [];
-  let warn = '';
-
-  if (!supabase) {
-    warn =
-      'Переменные окружения Supabase недоступны во время сборки. Страница рендерится без предзагруженных данных.';
-  } else {
-    const { data, error } = await supabase
-      .from('products')
-      .select('id, name, description, price, category, stock_qty, is_active')
-      .eq('is_active', true)
-      .order('name', { ascending: true });
-
-    if (error) {
-      warn = `Не удалось загрузить товары: ${error.message}`;
-    } else {
-      products =
-        (data ?? []).map((p) => ({
-          ...p,
-          // страховка от null в числовых полях
-          price: p.price ?? 0,
-          stock_qty: p.stock_qty ?? 0,
-        })) as Product[];
-    }
+  if (error) {
+    console.error('[products] supabase error:', error.message);
+    return [];
   }
 
-  return (
-    <main className="container mx-auto max-w-5xl p-6">
-      <h1 className="text-2xl font-bold mb-6">Каталог — Товары</h1>
+  // Приведём тип к Product[], если нужно — здесь можно сделать маппинг полей
+  return (data as unknown as Product[]) ?? [];
+}
 
-      {!!warn && (
-        <div className="mb-6 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-          {warn}
+export default async function ProductsPage() {
+  const { userId } = auth();
+
+  if (!userId) {
+    return (
+      <div className="mx-auto max-w-5xl px-4 py-10">
+        <h1 className="text-2xl font-semibold mb-4">Каталог</h1>
+        <div className="rounded-2xl border p-6">
+          <p className="mb-2">Доступно только авторизованным пользователям.</p>
+          <div className="text-sm">
+            <SignInButton mode="redirect" forceRedirectUrl="/catalog/products">
+              <span className="underline cursor-pointer">Войти</span>
+            </SignInButton>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const products = await getProducts();
+
+  return (
+    <div className="mx-auto max-w-6xl px-4 py-10">
+      <h1 className="text-2xl font-semibold mb-6">Каталог</h1>
+
+      {products.length === 0 ? (
+        <div className="rounded-2xl border p-6 text-sm text-muted-foreground">
+          Пока нет товаров.
+        </div>
+      ) : (
+        <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+          {products.map((p) => (
+            <Card key={p.id}>
+              <Card.Header>
+                <Card.Title className="line-clamp-2">{p.name ?? p.title ?? 'Без названия'}</Card.Title>
+                <Card.Description>{p.category ?? ''}</Card.Description>
+              </Card.Header>
+              {p.imageUrl ? (
+                <Card.Media>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={p.imageUrl}
+                    alt={p.name ?? p.title ?? 'product'}
+                    className="h-48 w-full rounded-xl object-cover"
+                  />
+                </Card.Media>
+              ) : null}
+              <Card.Content>
+                <div className="flex items-center justify-between">
+                  <span className="text-base font-medium">
+                    {typeof p.price === 'number' ? money(p.price) : p.price ?? '—'}
+                  </span>
+                  {p.city ? <span className="text-sm text-muted-foreground">{p.city}</span> : null}
+                </div>
+              </Card.Content>
+              {/* Если у Card есть actions — можно добавить кнопку */}
+              {/* <Card.Footer><Link href={`/catalog/products/${p.id}`} className="underline">Подробнее</Link></Card.Footer> */}
+            </Card>
+          ))}
         </div>
       )}
-
-      <SignedOut>
-        <div className="text-sm">
-          Доступно только авторизованным пользователям.{' '}
-          <SignInButton mode="redirect" redirectUrl="/catalog/products">
-            <span className="underline">Войти</span>
-          </SignInButton>
-        </div>
-      </SignedOut>
-
-      <SignedIn>
-        {products.length === 0 ? (
-          <div className="text-gray-500">Нет данных (пустая таблица или ошибка загрузки).</div>
-        ) : (
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {products.map((p) => (
-              <Card key={p.id} title={p.name}>
-                <div className="flex items-center justify-between text-sm text-gray-600 mb-1">
-                  <span>{p.category ?? '—'}</span>
-                  <span>На складе: {p.stock_qty}</span>
-                </div>
-                <div className="text-gray-500">{p.description ?? 'Без описания'}</div>
-                <div className="mt-2 font-semibold">{money(p.price ?? 0)}</div>
-              </Card>
-            ))}
-          </div>
-        )}
-      </SignedIn>
-    </main>
+    </div>
   );
 }
