@@ -15,7 +15,7 @@ type OrderRow = {
   amount: number;
   is_paid: boolean;
   paid_at: string | null;
-  status: string;
+  status: string; // enum
   user_id: string | null;
 };
 
@@ -29,39 +29,70 @@ type ItemRow = {
   created_at: string;
 };
 
-async function getOrder(userId: string, id: string) {
+async function getOrder(
+  userId: string,
+  id: string
+): Promise<{ order: OrderRow | null; items: ItemRow[] }> {
   const supabase = getSupabaseServer();
 
-  const { data: orderList, error: orderErr } = await supabase
+  const { data: orderData, error: orderErr } = await supabase
     .from('orders')
     .select('id, created_at, amount, is_paid, paid_at, status, user_id')
     .eq('id', id)
     .eq('user_id', userId)
-    .limit(1);
+    .maybeSingle();
 
   if (orderErr) {
     console.error('[orders:detail] ', orderErr.message);
-    return { order: null, items: [] as ItemRow[] };
+    return { order: null, items: [] };
   }
 
-  const order = (orderList?.[0] as OrderRow | undefined) ?? null;
-  if (!order) return { order: null, items: [] as ItemRow[] };
+  const order = (orderData as OrderRow | null) ?? null;
 
-  const { data: items, error: itemsErr } = await supabase
-    .from('order_items')
-    .select('*')
-    .eq('order_id', id)
-    .order('created_at', { ascending: true });
+  let items: ItemRow[] = [];
+  if (order) {
+    const { data: itemData, error: itemsErr } = await supabase
+      .from('order_items')
+      .select('id, kind, item_id, name, price, qty, created_at')
+      .eq('order_id', id)
+      .order('created_at', { ascending: true });
 
-  if (itemsErr) {
-    console.error('[order_items:list] ', itemsErr.message);
+    if (itemsErr) {
+      console.error('[order_items:list] ', itemsErr.message);
+    } else {
+      items = (itemData as unknown as ItemRow[]) ?? [];
+    }
   }
 
-  return { order, items: (items as unknown as ItemRow[]) ?? [] };
+  return { order, items };
 }
 
-export default async function OrderDetailPage({ params }: { params: { id: string } }) {
+function statusLabel(s: string) {
+  switch (s) {
+    case 'pending':
+      return 'Ожидает';
+    case 'paid':
+      return 'Оплачен';
+    case 'assigned':
+      return 'Передан исполнителю';
+    case 'in_progress':
+      return 'В работе';
+    case 'completed':
+      return 'Выполнен';
+    case 'cancelled':
+      return 'Отменён';
+    default:
+      return s;
+  }
+}
+
+export default async function OrderDetailPage({
+  params,
+}: {
+  params: { id: string };
+}) {
   const { userId } = auth();
+
   if (!userId) {
     return (
       <div className="mx-auto max-w-5xl px-4 py-10">
@@ -72,41 +103,51 @@ export default async function OrderDetailPage({ params }: { params: { id: string
   }
 
   const { order, items } = await getOrder(userId, params.id);
-  if (!order) notFound();
+  if (!order) {
+    notFound();
+  }
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-10 space-y-6">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold">Заказ #{order.id.slice(0, 8)}</h1>
+          <h1 className="text-2xl font-semibold">
+            Заказ #{order!.id.slice(0, 8)}
+          </h1>
           <div className="text-sm text-muted-foreground">
-            от {new Date(order.created_at).toLocaleString('ru-RU')}
-          </div>
-          <div className="mt-2">
-            Статус:{' '}
-            <span className="font-medium">{order.status}</span>{' '}
-            {order.is_paid ? (
-              <span className="text-green-600">• оплачен</span>
-            ) : (
-              <span className="text-amber-600">• ожидает оплаты</span>
-            )}
+            от {new Date(order!.created_at).toLocaleString('ru-RU')}
           </div>
         </div>
 
         <div className="text-right">
-  <div className="text-sm text-muted-foreground">Итого</div>
-  <div className="text-2xl font-semibold">{money(Number(order.amount) || 0)}</div>
-  <div className="text-sm mt-1">
-    Статус: <span className="font-medium">{statusLabel(order.status)}</span>
-    {' · '}
-    {order.is_paid ? <span className="text-green-600">оплачен</span> : <span className="text-amber-600">не оплачен</span>}
-  </div>
-  <OrderActions orderId={order.id} isPaid={order.is_paid} status={order.status as any} />
-</div>
+          <div className="text-sm text-muted-foreground">Итого</div>
+          <div className="text-2xl font-semibold">
+            {money(Number(order!.amount) || 0)}
+          </div>
+          <div className="text-sm mt-1">
+            Статус:{' '}
+            <span className="font-medium">{statusLabel(order!.status)}</span>
+            {' · '}
+            {order!.is_paid ? (
+              <span className="text-green-600">оплачен</span>
+            ) : (
+              <span className="text-amber-600">не оплачен</span>
+            )}
+          </div>
+
+          <OrderActions
+            orderId={order!.id}
+            isPaid={order!.is_paid}
+            status={order!.status as any}
+          />
+        </div>
+      </div>
 
       <div className="rounded-2xl border divide-y">
         {items.length === 0 ? (
-          <div className="p-4 text-sm text-muted-foreground">Позиции не найдены.</div>
+          <div className="p-4 text-sm text-muted-foreground">
+            Позиции не найдены.
+          </div>
         ) : (
           items.map((it) => (
             <div key={it.id} className="p-4 flex items-center gap-4">
@@ -125,15 +166,4 @@ export default async function OrderDetailPage({ params }: { params: { id: string
       </div>
     </div>
   );
-}
-function statusLabel(s: string) {
-  switch (s) {
-    case 'pending': return 'Ожидает';
-    case 'paid': return 'Оплачен';
-    case 'assigned': return 'Передан исполнителю';
-    case 'in_progress': return 'В работе';
-    case 'completed': return 'Выполнен';
-    case 'cancelled': return 'Отменён';
-    default: return s;
-  }
 }
