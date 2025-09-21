@@ -14,9 +14,7 @@ type Line = {
 export async function POST(request: Request) {
   try {
     const { userId } = auth();
-    if (!userId) {
-      return new NextResponse('Unauthorized', { status: 401 });
-    }
+    if (!userId) return new NextResponse('Unauthorized', { status: 401 });
 
     const body = await request.json();
     const items = (body?.items ?? []) as Line[];
@@ -24,25 +22,35 @@ export async function POST(request: Request) {
       return new NextResponse('No items', { status: 400 });
     }
 
-    // Валидация
     for (const l of items) {
-      if (!l || !l.kind || !l.id || !l.name || !Number.isFinite(l.price) || !Number.isFinite(l.qty)) {
+      if (
+        !l ||
+        (l.kind !== 'product' && l.kind !== 'service') ||
+        !l.id ||
+        !l.name ||
+        !Number.isFinite(l.price) ||
+        !Number.isFinite(l.qty)
+      ) {
         return new NextResponse('Invalid payload', { status: 400 });
       }
     }
 
-    const total = items.reduce((sum, l) => sum + l.price * l.qty, 0);
+    const amount = items.reduce((sum, l) => sum + l.price * l.qty, 0);
 
     const supabase = getSupabaseServer();
 
-    // создаём заказ
+    // ⚠️ Под твою схему: amount + is_paid + status + user_id
+    // status: даём 'pending' и рассчитываем, что он есть в enum или стоит дефолт
     const { data: orderRows, error: orderErr } = await supabase
       .from('orders')
       .insert({
-        user_id: userId,
-        total,
-        currency: 'RUB',
-        status: 'pending',
+        amount,           // numeric NOT NULL
+        is_paid: false,   // boolean NOT NULL
+        status: 'pending',// USER-DEFINED NOT NULL (должно существовать значение или быть DEFAULT)
+        user_id: userId,  // text (nullable в твоей схеме)
+        tenant_id: null,  // опционально
+        owner_id: null,   // опционально
+        paid_at: null     // опционально
       })
       .select('id')
       .limit(1);
@@ -54,7 +62,6 @@ export async function POST(request: Request) {
 
     const orderId = orderRows[0].id;
 
-    // добавляем позиции
     const rows = items.map((l) => ({
       order_id: orderId,
       kind: l.kind,
