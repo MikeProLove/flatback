@@ -12,11 +12,10 @@ export const dynamic = 'force-dynamic';
 async function getProducts(): Promise<Product[]> {
   const supabase = getSupabaseServer();
 
-  // 👇 Узкое место: getSupabaseServer может вернуть null — обработаем это явно
   if (!supabase) {
     console.error(
       '[products] Supabase client is not configured. ' +
-        'Проверь .env: NEXT_PUBLIC_SUPABASE_URL и NEXT_PUBLIC_SUPABASE_ANON_KEY (или серверные ключи) '
+        'Проверь .env: NEXT_PUBLIC_SUPABASE_URL и NEXT_PUBLIC_SUPABASE_ANON_KEY (или серверные ключи).'
     );
     return [];
   }
@@ -65,43 +64,65 @@ export default async function ProductsPage() {
         </div>
       ) : (
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-          {products.map((p) => (
-            <Card key={p.id}>
-              <Card.Header>
-                <Card.Title className="line-clamp-2">
-                  {p.name ?? p.title ?? 'Без названия'}
-                </Card.Title>
-                <Card.Description>{p.category ?? ''}</Card.Description>
-              </Card.Header>
+          {products.map((p) => {
+            const title = (p as any).name ?? (p as any).title ?? 'Без названия';
+            const category = (p as any).category ?? '';
+            const imageUrl =
+              (p as any).imageUrl ?? (p as any).image_url ?? null;
+            const price =
+              typeof (p as any).price === 'number'
+                ? money((p as any).price as number)
+                : (p as any).price ?? '—';
+            const city = (p as any).city ?? '';
 
-              {p.imageUrl ? (
-                <Card.Media>
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={p.imageUrl}
-                    alt={p.name ?? p.title ?? 'product'}
-                    className="h-48 w-full rounded-xl object-cover"
-                  />
-                </Card.Media>
-              ) : null}
-
-              <Card.Content>
-                <div className="flex items-center justify-between">
-                  <span className="text-base font-medium">
-                    {typeof p.price === 'number' ? money(p.price) : p.price ?? '—'}
-                  </span>
-                  {p.city ? (
-                    <span className="text-sm text-muted-foreground">{p.city}</span>
+            return (
+              <Card key={(p as any).id}>
+                {/* Заголовок */}
+                <div className="p-4">
+                  <h3 className="text-base font-semibold leading-tight line-clamp-2">
+                    {title}
+                  </h3>
+                  {category ? (
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      {category}
+                    </p>
                   ) : null}
                 </div>
-              </Card.Content>
-              {/* <Card.Footer>
-                <Link href={`/catalog/products/${p.id}`} className="underline">
-                  Подробнее
-                </Link>
-              </Card.Footer> */}
-            </Card>
-          ))}
+
+                {/* Картинка */}
+                {imageUrl ? (
+                  <div className="px-4">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={imageUrl}
+                      alt={title}
+                      className="h-48 w-full rounded-xl object-cover"
+                    />
+                  </div>
+                ) : null}
+
+                {/* Контент */}
+                <div className="p-4">
+                  <div className="flex items-center justify-between">
+                    <span className="text-base font-medium">{price}</span>
+                    {city ? (
+                      <span className="text-sm text-muted-foreground">
+                        {city}
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+
+                {/* Футер под кнопку/линк — если понадобится
+                <div className="p-4 pt-0">
+                  <Link href={`/catalog/products/${(p as any).id}`} className="underline">
+                    Подробнее
+                  </Link>
+                </div>
+                */}
+              </Card>
+            );
+          })}
         </div>
       )}
     </div>
