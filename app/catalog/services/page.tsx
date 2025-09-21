@@ -1,5 +1,6 @@
 // app/catalog/services/page.tsx
 import React from 'react';
+import Link from 'next/link';
 import Card from '@/components/Card';
 import { money } from '@/lib/format';
 import { getSupabaseServer } from '@/lib/supabase-server';
@@ -11,7 +12,6 @@ export const dynamic = 'force-dynamic';
 
 async function getServices(): Promise<Service[]> {
   const supabase = getSupabaseServer();
-
   const { data, error } = await supabase
     .from('services')
     .select('*')
@@ -50,17 +50,18 @@ export default async function ServicesPage() {
       ) : (
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
           {services.map((s) => {
+            const id = String((s as any).id);
             const title = (s as any).name ?? (s as any).title ?? 'Без названия';
             const category = (s as any).category ?? '';
             const imageUrl = (s as any).imageUrl ?? (s as any).image_url ?? '';
             const price =
               typeof (s as any).price === 'number'
                 ? money((s as any).price as number)
-                : (s as any).price ?? '—';
+                : money((s as any).price ?? 0);
             const city = (s as any).city ?? '';
 
             return (
-              <Card key={(s as any).id}>
+              <Card key={id}>
                 <div className="p-4">
                   <h3 className="text-base font-semibold leading-tight line-clamp-2">
                     {title}
@@ -88,6 +89,15 @@ export default async function ServicesPage() {
                       <span className="text-sm text-muted-foreground">{city}</span>
                     ) : null}
                   </div>
+                </div>
+
+                <div className="p-4 pt-0">
+                  <Link
+                    href={`/orders/create?service=${encodeURIComponent(id)}`}
+                    className="inline-flex items-center rounded-md border px-3 py-2 text-sm hover:bg-muted/50 transition"
+                  >
+                    Добавить в заказ
+                  </Link>
                 </div>
               </Card>
             );
