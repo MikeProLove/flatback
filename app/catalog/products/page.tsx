@@ -1,49 +1,61 @@
-// app/catalog/products/page.tsx
+// app/catalog/services/page.tsx
 import React from 'react';
 import Card from '@/components/Card';
 import { money } from '@/lib/format';
-import type { Product } from '@/lib/types';
 import { getSupabaseServer } from '@/lib/supabase-server';
 import { auth } from '@clerk/nextjs/server';
 import { SignInButton } from '@clerk/nextjs';
 
 export const dynamic = 'force-dynamic';
 
-async function getProducts(): Promise<Product[]> {
+// Локальный тип, чтобы не зависеть от '@/lib/types'
+type ServiceRow = {
+  id: string | number;
+  name?: string;
+  title?: string;
+  category?: string;
+  imageUrl?: string;
+  image_url?: string;
+  price?: number | string | null;
+  city?: string | null;
+  created_at?: string;
+};
+
+async function getServices(): Promise<ServiceRow[]> {
   const supabase = getSupabaseServer();
 
   if (!supabase) {
     console.error(
-      '[products] Supabase client is not configured. ' +
+      '[services] Supabase client is not configured. ' +
         'Проверь .env: NEXT_PUBLIC_SUPABASE_URL и NEXT_PUBLIC_SUPABASE_ANON_KEY (или серверные ключи).'
     );
     return [];
   }
 
   const { data, error } = await supabase
-    .from('products')
+    .from('services')
     .select('*')
     .order('created_at', { ascending: false });
 
   if (error) {
-    console.error('[products] supabase error:', error.message);
+    console.error('[services] supabase error:', error.message);
     return [];
   }
 
-  return (data as unknown as Product[]) ?? [];
+  return (data as unknown as ServiceRow[]) ?? [];
 }
 
-export default async function ProductsPage() {
+export default async function ServicesPage() {
   const { userId } = auth();
 
   if (!userId) {
     return (
       <div className="mx-auto max-w-5xl px-4 py-10">
-        <h1 className="text-2xl font-semibold mb-4">Каталог</h1>
+        <h1 className="text-2xl font-semibold mb-4">Услуги</h1>
         <div className="rounded-2xl border p-6">
           <p className="mb-2">Доступно только авторизованным пользователям.</p>
           <div className="text-sm">
-            <SignInButton mode="redirect" forceRedirectUrl="/catalog/products">
+            <SignInButton mode="redirect" forceRedirectUrl="/catalog/services">
               <span className="underline cursor-pointer">Войти</span>
             </SignInButton>
           </div>
@@ -52,31 +64,28 @@ export default async function ProductsPage() {
     );
   }
 
-  const products = await getProducts();
+  const services = await getServices();
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-10">
-      <h1 className="text-2xl font-semibold mb-6">Каталог</h1>
+      <h1 className="text-2xl font-semibold mb-6">Услуги</h1>
 
-      {products.length === 0 ? (
+      {services.length === 0 ? (
         <div className="rounded-2xl border p-6 text-sm text-muted-foreground">
-          Пока нет товаров.
+          Пока нет услуг.
         </div>
       ) : (
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-          {products.map((p) => {
-            const title = (p as any).name ?? (p as any).title ?? 'Без названия';
-            const category = (p as any).category ?? '';
-            const imageUrl =
-              (p as any).imageUrl ?? (p as any).image_url ?? null;
+          {services.map((s) => {
+            const title = s.name ?? s.title ?? 'Без названия';
+            const category = s.category ?? '';
+            const imageUrl = s.imageUrl ?? s.image_url ?? '';
             const price =
-              typeof (p as any).price === 'number'
-                ? money((p as any).price as number)
-                : (p as any).price ?? '—';
-            const city = (p as any).city ?? '';
+              typeof s.price === 'number' ? money(s.price) : s.price ?? '—';
+            const city = s.city ?? '';
 
             return (
-              <Card key={(p as any).id}>
+              <Card key={s.id}>
                 {/* Заголовок */}
                 <div className="p-4">
                   <h3 className="text-base font-semibold leading-tight line-clamp-2">
@@ -89,7 +98,7 @@ export default async function ProductsPage() {
                   ) : null}
                 </div>
 
-                {/* Картинка */}
+                {/* Картинка (если есть) */}
                 {imageUrl ? (
                   <div className="px-4">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -112,14 +121,6 @@ export default async function ProductsPage() {
                     ) : null}
                   </div>
                 </div>
-
-                {/* Футер под кнопку/линк — если понадобится
-                <div className="p-4 pt-0">
-                  <Link href={`/catalog/products/${(p as any).id}`} className="underline">
-                    Подробнее
-                  </Link>
-                </div>
-                */}
               </Card>
             );
           })}
