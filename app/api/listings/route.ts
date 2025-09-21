@@ -82,14 +82,18 @@ export async function POST(req: Request) {
     const tourFile = form.get('tour_file') as File | null;
     const photos = form.getAll('photos') as File[];
 
-    // --- сервисный клиент: и БД, и Storage через один клиент
+    // --- админ-клиент Supabase (service role) — обходит RLS
     const sb = getSupabaseAdmin();
 
     // 1) запись объявления
     const { data: listingRows, error: insErr } = await sb
       .from('listings')
       .insert({
+        // ВАЖНО: заполняем owner_id, чтобы удовлетворить NOT NULL
+        owner_id: userId,
+        // (оставляем и user_id, если он у тебя используется где-то ещё)
         user_id: userId,
+
         status: 'draft',
         title,
         price,
