@@ -1,5 +1,6 @@
 // app/catalog/products/page.tsx
 import React from 'react';
+import Link from 'next/link';
 import Card from '@/components/Card';
 import { money } from '@/lib/format';
 import type { Product } from '@/lib/types';
@@ -11,7 +12,6 @@ export const dynamic = 'force-dynamic';
 
 async function getProducts(): Promise<Product[]> {
   const supabase = getSupabaseServer();
-
   const { data, error } = await supabase
     .from('products')
     .select('*')
@@ -50,17 +50,18 @@ export default async function ProductsPage() {
       ) : (
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
           {products.map((p) => {
+            const id = String((p as any).id);
             const title = (p as any).name ?? (p as any).title ?? 'Без названия';
             const category = (p as any).category ?? '';
             const imageUrl = (p as any).imageUrl ?? (p as any).image_url ?? '';
             const price =
               typeof (p as any).price === 'number'
                 ? money((p as any).price as number)
-                : (p as any).price ?? '—';
+                : money((p as any).price ?? 0);
             const city = (p as any).city ?? '';
 
             return (
-              <Card key={(p as any).id}>
+              <Card key={id}>
                 <div className="p-4">
                   <h3 className="text-base font-semibold leading-tight line-clamp-2">
                     {title}
@@ -88,6 +89,16 @@ export default async function ProductsPage() {
                       <span className="text-sm text-muted-foreground">{city}</span>
                     ) : null}
                   </div>
+                </div>
+
+                {/* Кнопка "Добавить в заказ" */}
+                <div className="p-4 pt-0">
+                  <Link
+                    href={`/orders/create?product=${encodeURIComponent(id)}`}
+                    className="inline-flex items-center rounded-md border px-3 py-2 text-sm hover:bg-muted/50 transition"
+                  >
+                    Добавить в заказ
+                  </Link>
                 </div>
               </Card>
             );
