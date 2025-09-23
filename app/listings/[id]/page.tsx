@@ -6,6 +6,7 @@ import { getSupabaseAdmin } from '@/lib/supabase-admin';
 import { money } from '@/lib/format';
 import GalleryLightbox from './GalleryLightbox';
 import Actions from '../my/Actions'; // ← используем те же кнопки, что в "Мои объявления"
+import RequestForm from './RequestForm';
 
 export const dynamic = 'force-dynamic';
 
@@ -144,6 +145,11 @@ export default async function ListingPage({ params }: { params: { id: string } }
         <div><b>Лифт:</b> {listing.lift ? 'есть' : '—'}</div>
         <div><b>Балкон:</b> {listing.balcony ? 'есть' : '—'}</div>
       </div>
+
+      {/* Заявка — показываем только авторизованному не-владельцу и только для опубликованных объявлений */}
+{!isOwner && userId && (listing.status === 'published') && (
+  <RequestForm listingId={listing.id} />
+)}
 
       {/* 3D-тур */}
       {(listing.tour_url || listing.tour_file_path) && (
