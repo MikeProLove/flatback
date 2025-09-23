@@ -4,64 +4,31 @@ import { money } from '@/lib/format';
 
 export const dynamic = 'force-dynamic';
 
-type Listing = {
+type ListingRow = {
   id: string;
-  owner_id: string | null;
-  user_id: string | null;
   title: string | null;
-  description: string | null;
   price: number | null;
   city: string | null;
   rooms: number | null;
   area_total: number | null;
+  cover_url: string | null;
   created_at: string;
   status: string;
 };
 
 async function getData() {
   const sb = getSupabaseAdmin();
-
-  const { data: listings } = await sb
-    .from('listings')
-    .select('id,owner_id,user_id,title,description,price,city,rooms,area_total,created_at,status')
+  const { data, error } = await sb
+    .from('listings_with_cover')
+    .select('id,title,price,city,rooms,area_total,cover_url,created_at,status')
     .order('created_at', { ascending: false })
     .limit(24);
 
-  const cover = new Map<string, string>();
-
-  if (listings?.length) {
-    const ids = listings.map(l => l.id);
-    const { data: photos } = await sb
-      .from('listing_photos')
-      .select('listing_id,url,sort_order')
-      .in('listing_id', ids)
-      .order('sort_order', { ascending: true });
-
-    for (const p of (photos ?? []) as Array<{ listing_id: string; url: string }>) {
-      if (!cover.has(p.listing_id)) cover.set(p.listing_id, p.url);
-    }
-
-    // fallback — первый файл из Storage
-    for (const l of listings as Listing[]) {
-      if (!cover.has(l.id)) {
-        const owner = l.owner_id || l.user_id;
-        if (!owner) continue;
-        const prefix = `${owner}/${l.id}`;
-        const list = await sb.storage.from('listings').list(prefix, { limit: 1 });
-        if (!list.error && list.data?.[0]) {
-          const fullPath = `${prefix}/${list.data[0].name}`;
-          const pub = sb.storage.from('listings').getPublicUrl(fullPath);
-          cover.set(l.id, pub.data.publicUrl);
-        }
-      }
-    }
-  }
-
-  return { listings: (listings ?? []) as Listing[], cover };
+  return { listings: (data ?? []) as ListingRow[] };
 }
 
 export default async function ListingsPage() {
-  const { listings, cover } = await getData();
+  const { listings } = await getData();
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-10">
@@ -81,9 +48,9 @@ export default async function ListingsPage() {
             >
               {/* обложка */}
               <div className="aspect-[4/3] bg-muted">
-                {cover.get(l.id) ? (
+                {l.cover_url ? (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={cover.get(l.id)!} alt="" className="w-full h-full object-cover" />
+                  <img src={l.cover_url} alt="" className="w-full h-full object-cover" loading="lazy" />
                 ) : null}
               </div>
 
@@ -93,11 +60,6 @@ export default async function ListingsPage() {
                 <div className="text-sm text-muted-foreground">
                   {l.city ?? '—'} · {l.rooms ?? '—'}к · {l.area_total ?? '—'} м²
                 </div>
-                {l.description ? (
-                  <p className="text-sm text-muted-foreground line-clamp-2">
-                    {l.description}
-                  </p>
-                ) : null}
                 <div className="text-base font-semibold">
                   {money(Number(l.price) || 0)}
                 </div>
