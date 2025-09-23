@@ -44,6 +44,8 @@ export default function RootLayout({
               <Link href="/listings">Объявления</Link>        {/* ← добавили */}
               <Link href="/listings/create">Новое объявление</Link>
               <Link href="/listings/my">Мои объявления</Link>
+              <Link href="/requests">Мои заявки</Link>
+              <Link href="/owner/requests">Заявки на мои</Link>
             </nav>
 
             <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
