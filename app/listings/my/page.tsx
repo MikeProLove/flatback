@@ -22,14 +22,37 @@ type Row = {
 
 async function getMine(userId: string) {
   const sb = getSupabaseAdmin();
+
+  // 1) берём мои объявления с cover_url из вьюхи
   const { data } = await sb
     .from('listings_with_cover')
     .select('id,title,price,city,rooms,area_total,cover_url,created_at,status,owner_id,user_id')
-    .or(`owner_id.eq.${userId},user_id.eq.${userId}`) // на случай старых записей
+    .or(`owner_id.eq.${userId},user_id.eq.${userId}`)
     .order('created_at', { ascending: false })
     .limit(100);
 
-  return (data ?? []) as Row[];
+  const rows = (data ?? []) as Row[];
+
+  // 2) fallback: если cover_url пуст, берём первый файл из Storage
+  const fallback = new Map<string, string>();
+  const tasks = rows
+    .filter((l) => !l.cover_url)
+    .map(async (l) => {
+      const owner = l.owner_id || l.user_id;
+      if (!owner) return;
+      const prefix = `${owner}/${l.id}`;
+      const list = await sb.storage.from('listings').list(prefix, { limit: 1 });
+      const first = list?.data?.[0];
+      if (first) {
+        const fullPath = `${prefix}/${first.name}`;
+        const pub = sb.storage.from('listings').getPublicUrl(fullPath);
+        fallback.set(l.id, pub.data.publicUrl);
+      }
+    });
+  await Promise.all(tasks);
+
+  // вернём с учётом fallback
+  return rows.map((r) => ({ ...r, cover_url: r.cover_url || fallback.get(r.id) || null }));
 }
 
 export default async function MyListingsPage() {
@@ -75,7 +98,9 @@ export default async function MyListingsPage() {
                       </span>
                     </div>
                   </div>
-                  <div className="text-right font-semibold">{(l.price ?? 0).toLocaleString('ru-RU')} ₽</div>
+                  <div className="text-right font-semibold">
+                    {(l.price ?? 0).toLocaleString('ru-RU')} ₽
+                  </div>
                 </div>
 
                 <Actions id={l.id} status={l.status} />
