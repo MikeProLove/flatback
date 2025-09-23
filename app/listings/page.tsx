@@ -9,6 +9,7 @@ type Listing = {
   owner_id: string | null;
   user_id: string | null;
   title: string | null;
+  description: string | null;
   price: number | null;
   city: string | null;
   rooms: number | null;
@@ -22,7 +23,7 @@ async function getData() {
 
   const { data: listings } = await sb
     .from('listings')
-    .select('id,owner_id,user_id,title,price,city,rooms,area_total,created_at,status')
+    .select('id,owner_id,user_id,title,description,price,city,rooms,area_total,created_at,status')
     .order('created_at', { ascending: false })
     .limit(24);
 
@@ -40,7 +41,7 @@ async function getData() {
       if (!cover.has(p.listing_id)) cover.set(p.listing_id, p.url);
     }
 
-    // fallback по Storage для тех, у кого обложки нет
+    // fallback — первый файл из Storage
     for (const l of listings as Listing[]) {
       if (!cover.has(l.id)) {
         const owner = l.owner_id || l.user_id;
@@ -73,19 +74,33 @@ export default async function ListingsPage() {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {listings.map((l) => (
-            <a key={l.id} href={`/listings/${l.id}`} className="rounded-2xl border hover:shadow transition overflow-hidden">
+            <a
+              key={l.id}
+              href={`/listings/${l.id}`}
+              className="rounded-2xl border hover:shadow transition overflow-hidden"
+            >
+              {/* обложка */}
               <div className="aspect-[4/3] bg-muted">
                 {cover.get(l.id) ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img src={cover.get(l.id)!} alt="" className="w-full h-full object-cover" />
                 ) : null}
               </div>
-              <div className="p-4 space-y-1">
+
+              {/* контент */}
+              <div className="p-4 space-y-2">
                 <div className="text-lg font-semibold">{l.title ?? 'Объявление'}</div>
                 <div className="text-sm text-muted-foreground">
                   {l.city ?? '—'} · {l.rooms ?? '—'}к · {l.area_total ?? '—'} м²
                 </div>
-                <div className="text-base font-semibold">{money(Number(l.price) || 0)}</div>
+                {l.description ? (
+                  <p className="text-sm text-muted-foreground line-clamp-2">
+                    {l.description}
+                  </p>
+                ) : null}
+                <div className="text-base font-semibold">
+                  {money(Number(l.price) || 0)}
+                </div>
               </div>
             </a>
           ))}
