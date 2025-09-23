@@ -5,7 +5,12 @@ import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { getSupabaseAdmin } from '@/lib/supabase-admin';
 
-type Listing = { id: string; owner_id: string | null; user_id: string | null; tour_file_path?: string | null };
+type Listing = {
+  id: string;
+  owner_id: string | null;
+  user_id: string | null;
+  tour_file_path?: string | null;
+};
 
 const toNum = (v: FormDataEntryValue | null) => {
   if (v === null || v === undefined || v === '') return null;
@@ -42,7 +47,14 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     if (!userId) return new NextResponse('Unauthorized', { status: 401 });
 
     const chk = await mustOwn(params.id, userId);
-    if (!chk.ok) return new NextResponse(chk.code === 403 ? 'Forbidden' : 'Not Found', { status: chk.code });
+    if (!chk.ok) {
+      return new NextResponse(chk.code === 403 ? 'Forbidden' : 'Not Found', {
+        status: chk.code,
+      });
+    }
+    // ⬇️ Явно фиксируем локальные переменные для TS
+    const listingRow = chk.listing as Listing;
+    const ownerId = chk.ownerId;
 
     const sb = getSupabaseAdmin();
     const ct = req.headers.get('content-type') || '';
@@ -98,8 +110,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     const s = (name: string) => put(patch, name, form.get(name) as string | null);
     s('status'); s('title'); s('currency'); s('address'); s('city'); s('district');
     s('metro'); s('description'); s('building_type'); s('renovation'); s('furniture');
-    s('appliances'); s('bathroom'); s('parking'); s('tour_url');
-    s('available_from'); // yyyy-mm-dd
+    s('appliances'); s('bathroom'); s('parking'); s('tour_url'); s('available_from');
 
     // применяем патч
     if (Object.keys(patch).length) {
@@ -137,8 +148,11 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
       for (const [i, f] of files.entries()) {
         if (!f || f.size === 0) continue;
         const ext = (f.name.split('.').pop() || 'jpg').toLowerCase();
-        const path = `${chk.ownerId}/${params.id}/${crypto.randomUUID()}.${ext}`;
-        const up = await sb.storage.from('listings').upload(path, f, { contentType: f.type || 'image/jpeg', upsert: false });
+        const path = `${ownerId}/${params.id}/${crypto.randomUUID()}.${ext}`;
+        const up = await sb.storage.from('listings').upload(path, f, {
+          contentType: f.type || 'image/jpeg',
+          upsert: false,
+        });
         if (up.error) continue;
         const pub = sb.storage.from('listings').getPublicUrl(path);
         rowsToInsert.push({ listing_id: params.id, url: pub.data.publicUrl, storage_path: path, sort_order: startOrder + i });
@@ -150,19 +164,22 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     const removeTour = toBool(form.get('remove_tour_file'));
     const newTour = form.get('tour_file') as File | null;
 
-    if (removeTour && chk.listing.tour_file_path) {
-      await sb.storage.from('listings-3d').remove([chk.listing.tour_file_path]);
+    if (removeTour && listingRow.tour_file_path) {
+      await sb.storage.from('listings-3d').remove([listingRow.tour_file_path]);
       await sb.from('listings').update({ tour_file_path: null }).eq('id', params.id);
     }
 
     if (newTour && newTour.size > 0) {
       // удалим старый, если был
-      if (chk.listing.tour_file_path) {
-        await sb.storage.from('listings-3d').remove([chk.listing.tour_file_path]).catch(() => {});
+      if (listingRow.tour_file_path) {
+        await sb.storage.from('listings-3d').remove([listingRow.tour_file_path]).catch(() => {});
       }
       const ext = (newTour.name.split('.').pop() || 'bin').toLowerCase();
-      const tpath = `${chk.ownerId}/${params.id}/${crypto.randomUUID()}.${ext}`;
-      const up = await sb.storage.from('listings-3d').upload(tpath, newTour, { contentType: newTour.type || 'application/octet-stream', upsert: false });
+      const tpath = `${ownerId}/${params.id}/${crypto.randomUUID()}.${ext}`;
+      const up = await sb.storage.from('listings-3d').upload(tpath, newTour, {
+        contentType: newTour.type || 'application/octet-stream',
+        upsert: false,
+      });
       if (!up.error) {
         await sb.from('listings').update({ tour_file_path: tpath }).eq('id', params.id);
       }
@@ -175,7 +192,44 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   }
 }
 
-export async function DELETE() {
-  // DELETE уже есть у тебя — оставь как был (или скопируй из предыдущей версии)
-  return new NextResponse('Not Implemented', { status: 501 });
+export async function DELETE(req: Request, { params }: { params: { id: string } }) {
+  try {
+    const { userId } = auth();
+    if (!userId) return new NextResponse('Unauthorized', { status: 401 });
+
+    const sb = getSupabaseAdmin();
+    const chk = await mustOwn(params.id, userId);
+    if (!chk.ok) {
+      return new NextResponse(chk.code === 403 ? 'Forbidden' : 'Not Found', {
+        status: chk.code,
+      });
+    }
+    const ownerId = chk.ownerId;
+
+    // удалить фото + тур из storage
+    {
+      const prefix = `${ownerId}/${params.id}`;
+      const list = await sb.storage.from('listings').list(prefix, { limit: 1000 });
+      const paths = (list.data ?? []).map((o) => `${prefix}/${o.name}`);
+      if (paths.length) await sb.storage.from('listings').remove(paths);
+    }
+    {
+      const prefix = `${ownerId}/${params.id}`;
+      const list = await sb.storage.from('listings-3d').list(prefix, { limit: 1000 });
+      const paths = (list.data ?? []).map((o) => `${prefix}/${o.name}`);
+      if (paths.length) await sb.storage.from('listings-3d').remove(paths);
+    }
+
+    const { error: delErr } = await sb.from('listings').delete().eq('id', params.id);
+    if (delErr)
+      return NextResponse.json(
+        { error: 'delete_failed', message: delErr.message },
+        { status: 500 }
+      );
+
+    return NextResponse.json({ ok: true });
+  } catch (e: any) {
+    console.error('[listings DELETE] error', e);
+    return NextResponse.json({ error: 'server_error', message: e?.message ?? 'Internal' }, { status: 500 });
+  }
 }
