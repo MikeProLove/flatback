@@ -43,6 +43,7 @@ export default function RootLayout({
               <Link href="/orders/create">Новый заказ</Link>
               <Link href="/listings">Объявления</Link>        {/* ← добавили */}
               <Link href="/listings/create">Новое объявление</Link>
+              <Link href="/listings/my">Мои объявления</Link>
             </nav>
 
             <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
