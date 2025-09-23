@@ -1,16 +1,19 @@
 // app/listings/[id]/page.tsx
 import React from 'react';
 import { notFound } from 'next/navigation';
+import { auth } from '@clerk/nextjs/server';
 import { getSupabaseAdmin } from '@/lib/supabase-admin';
 import { money } from '@/lib/format';
 import GalleryLightbox from './GalleryLightbox';
+import Actions from '../my/Actions'; // ← используем те же кнопки, что в "Мои объявления"
 
 export const dynamic = 'force-dynamic';
 
 type Listing = {
   id: string;
   owner_id: string | null;
-  user_id: string | null;
+  user_id: string | null; // на случай старых записей
+  status: string | null;
   title: string | null;
   address: string | null;
   city: string | null;
@@ -39,6 +42,8 @@ type Listing = {
   created_at: string;
 };
 
+type PhotoRow = { id: string; listing_id: string; url: string; sort_order: number };
+
 async function fetchListingAndPhotos(id: string) {
   const sb = getSupabaseAdmin();
 
@@ -46,7 +51,7 @@ async function fetchListingAndPhotos(id: string) {
   if (e1 || !l) return null;
   const listing = l as Listing;
 
-  // Сначала пробуем фото из таблицы
+  // сначала пробуем фото из таблицы
   const { data: photoRows } = await sb
     .from('listing_photos')
     .select('id,listing_id,url,sort_order')
@@ -54,9 +59,9 @@ async function fetchListingAndPhotos(id: string) {
     .order('sort_order', { ascending: true });
 
   let photos: { id: string; url: string }[] =
-    (photoRows ?? []).map((p: any) => ({ id: p.id, url: p.url }));
+    (photoRows ?? []).map((p: any) => ({ id: (p as PhotoRow).id, url: (p as PhotoRow).url }));
 
-  // Fallback: если строк нет — заглянем прямо в Storage
+  // fallback: если строк нет — подхватываем первый десяток файлов из Storage
   if (photos.length === 0) {
     const owner = listing.owner_id || listing.user_id;
     if (owner) {
@@ -78,21 +83,37 @@ async function fetchListingAndPhotos(id: string) {
 export default async function ListingPage({ params }: { params: { id: string } }) {
   const data = await fetchListingAndPhotos(params.id);
   if (!data) notFound();
+
+  const { userId } = auth();
   const { listing, photos } = data;
+
+  const owner = listing.owner_id || listing.user_id;
+  const isOwner = !!userId && !!owner && userId === owner;
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-10 space-y-6">
-      {/* Заголовок + цена */}
-      <div className="flex items-start justify-between">
+      {/* Заголовок + цена + действия владельца */}
+      <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold">{listing.title ?? 'Объявление'}</h1>
           <div className="text-sm text-muted-foreground">
             {listing.address || listing.city || 'Адрес не указан'}
           </div>
+          {isOwner && (
+            <div className="mt-3">
+              <Actions id={listing.id} status={listing.status ?? 'draft'} />
+            </div>
+          )}
         </div>
-        <div className="text-right">
+        <div className="text-right shrink-0">
           <div className="text-sm text-muted-foreground">Аренда</div>
           <div className="text-2xl font-semibold">{money(Number(listing.price) || 0)}</div>
+          <div className="text-xs mt-1">
+            Статус:{' '}
+            <span className={listing.status === 'published' ? 'text-green-600' : 'text-yellow-600'}>
+              {listing.status ?? 'draft'}
+            </span>
+          </div>
         </div>
       </div>
 
@@ -137,7 +158,7 @@ export default async function ListingPage({ params }: { params: { id: string } }
         </div>
       )}
 
-      {/* Описание (починили — снова выводим) */}
+      {/* Описание */}
       {listing.description && (
         <div className="rounded-2xl border p-4">
           <div className="font-medium mb-1">Описание</div>
