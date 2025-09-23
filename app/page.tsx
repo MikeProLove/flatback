@@ -1,12 +1,14 @@
 // app/page.tsx
 import React from 'react';
-import { getSupabaseServer } from '@/lib/supabase-server';
+import { getSupabaseAdmin } from '@/lib/supabase-admin';
 import { money } from '@/lib/format';
 
 export const dynamic = 'force-dynamic';
 
-type ListingRow = {
+type Listing = {
   id: string;
+  owner_id: string | null;
+  user_id: string | null;
   title: string | null;
   price: number | null;
   city: string | null;
@@ -16,18 +18,20 @@ type ListingRow = {
 };
 
 async function getLatest() {
-  const sb = getSupabaseServer();
+  const sb = getSupabaseAdmin();
 
+  // последние 6 объявлений
   const { data: listings } = await sb
     .from('listings')
-    .select('id,title,price,city,rooms,area_total,created_at')
+    .select('id,owner_id,user_id,title,price,city,rooms,area_total,created_at')
     .order('created_at', { ascending: false })
     .limit(6);
 
-  const ids = (listings ?? []).map((l: any) => l.id as string);
-
   const cover = new Map<string, string>();
-  if (ids.length) {
+
+  if (listings?.length) {
+    // 1) пробуем взять обложки из таблицы listing_photos
+    const ids = listings.map((l) => l.id);
     const { data: photos } = await sb
       .from('listing_photos')
       .select('listing_id,url,sort_order')
@@ -37,9 +41,24 @@ async function getLatest() {
     for (const p of (photos ?? []) as Array<{ listing_id: string; url: string }>) {
       if (!cover.has(p.listing_id)) cover.set(p.listing_id, p.url);
     }
+
+    // 2) fallback: если обложки нет — берём первый файл из Storage
+    for (const l of listings as Listing[]) {
+      if (!cover.has(l.id)) {
+        const owner = l.owner_id || l.user_id;
+        if (!owner) continue;
+        const prefix = `${owner}/${l.id}`;
+        const list = await sb.storage.from('listings').list(prefix, { limit: 1 });
+        if (!list?.error && list?.data?.[0]) {
+          const fullPath = `${prefix}/${list.data[0].name}`;
+          const pub = sb.storage.from('listings').getPublicUrl(fullPath);
+          cover.set(l.id, pub.data.publicUrl);
+        }
+      }
+    }
   }
 
-  return { listings: (listings ?? []) as ListingRow[], cover };
+  return { listings: (listings ?? []) as Listing[], cover };
 }
 
 export default async function HomePage() {
@@ -57,7 +76,9 @@ export default async function HomePage() {
       <section>
         <div className="mb-3 flex items-center justify-between">
           <div className="text-lg font-medium">Новые объявления</div>
-          <a href="/listings" className="text-sm underline">Все объявления</a>
+          <a href="/listings" className="text-sm underline">
+            Все объявления
+          </a>
         </div>
 
         {listings.length === 0 ? (
@@ -72,12 +93,20 @@ export default async function HomePage() {
                 href={`/listings/${l.id}`}
                 className="rounded-2xl border hover:shadow transition overflow-hidden"
               >
+                {/* обложка */}
                 <div className="aspect-[4/3] bg-muted">
                   {cover.get(l.id) ? (
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img src={cover.get(l.id)!} alt="" className="w-full h-full object-cover" />
+                    <img
+                      src={cover.get(l.id)!}
+                      alt=""
+                      className="w-full h-full object-cover"
+                      loading="lazy"
+                    />
                   ) : null}
                 </div>
+
+                {/* контент */}
                 <div className="p-4 space-y-1">
                   <div className="text-base font-semibold">{l.title ?? 'Объявление'}</div>
                   <div className="text-sm text-muted-foreground">
