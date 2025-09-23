@@ -18,6 +18,7 @@ type Row = {
   listing_id: string;
   tenant_id: string;
   created_at: string;
+  // из вьюхи:
   listing_title: string | null;
   listing_city: string | null;
   cover_url: string | null;
@@ -25,15 +26,15 @@ type Row = {
 
 async function getIncoming(ownerId: string) {
   const sb = getSupabaseAdmin();
-  const { data } = await sb
-  .from('booking_requests')
-  .select(
-    'id,status,payment_status,start_date,end_date,monthly_price,deposit,created_at,tenant_id,listing_id, listings ( title,city )'
-  )
-  .eq('owner_id', ownerId)
-  .order('created_at', { ascending: false });
 
-  const rows = (data ?? []).map((r: any) => ({
+  // 1) Берём заявки БЕЗ вложенных таблиц
+  const { data: br } = await sb
+    .from('booking_requests')
+    .select('id,status,payment_status,start_date,end_date,monthly_price,deposit,created_at,tenant_id,listing_id')
+    .eq('owner_id', ownerId)
+    .order('created_at', { ascending: false });
+
+  const base = (br ?? []).map((r: any) => ({
     id: r.id,
     status: r.status,
     payment_status: r.payment_status ?? 'pending',
@@ -44,22 +45,29 @@ async function getIncoming(ownerId: string) {
     listing_id: r.listing_id,
     tenant_id: r.tenant_id,
     created_at: r.created_at,
-    listing_title: r.listings?.title ?? null,
-    listing_city: r.listings?.city ?? null,
+    listing_title: null as string | null,
+    listing_city: null as string | null,
+    cover_url: null as string | null,
   })) as Row[];
 
-  const ids = rows.map((r) => r.listing_id);
-  const covers = new Map<string, string>();
-  if (ids.length) {
-    const { data: cov } = await sb
-      .from('listings_with_cover')
-      .select('id,cover_url')
-      .in('id', ids);
-    for (const c of (cov ?? []) as any[]) {
-      if (c.cover_url) covers.set(c.id, c.cover_url);
-    }
+  if (base.length === 0) return base;
+
+  // 2) Подтягиваем данные объявлений из вьюхи
+  const ids = Array.from(new Set(base.map((r) => r.listing_id)));
+  const { data: lst } = await sb
+    .from('listings_with_cover')
+    .select('id,title,city,cover_url')
+    .in('id', ids);
+
+  const map = new Map<string, { title: string | null; city: string | null; cover_url: string | null }>();
+  for (const it of (lst ?? []) as any[]) {
+    map.set(it.id as string, { title: it.title ?? null, city: it.city ?? null, cover_url: it.cover_url ?? null });
   }
-  return rows.map((r) => ({ ...r, cover_url: covers.get(r.listing_id) ?? null }));
+
+  return base.map((r) => {
+    const m = map.get(r.listing_id);
+    return { ...r, listing_title: m?.title ?? null, listing_city: m?.city ?? null, cover_url: m?.cover_url ?? null };
+  });
 }
 
 export default async function OwnerRequestsPage() {
@@ -73,9 +81,7 @@ export default async function OwnerRequestsPage() {
       <h1 className="text-2xl font-semibold">Заявки на мои объявления</h1>
 
       {rows.length === 0 ? (
-        <div className="rounded-2xl border p-6 text-sm text-muted-foreground">
-          Пока нет заявок.
-        </div>
+        <div className="rounded-2xl border p-6 text-sm text-muted-foreground">Пока нет заявок.</div>
       ) : (
         <div className="space-y-4">
           {rows.map((r) => {
@@ -141,4 +147,3 @@ export default async function OwnerRequestsPage() {
     </div>
   );
 }
-
