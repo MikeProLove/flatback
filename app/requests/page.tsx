@@ -25,10 +25,12 @@ type Row = {
 async function getMy(userId: string) {
   const sb = getSupabaseAdmin();
   const { data } = await sb
-    .from('booking_requests')
-    .select('id,status,payment_status,start_date,end_date,monthly_price,deposit,created_at,listing_id,owner_id, listings:listing_id(title,city)')
-    .eq('tenant_id', userId)
-    .order('created_at', { ascending: false });
+  .from('booking_requests')
+  .select(
+    'id,status,payment_status,start_date,end_date,monthly_price,deposit,created_at,listing_id,owner_id, listings ( title,city )'
+  )
+  .eq('tenant_id', userId)
+  .order('created_at', { ascending: false });
 
   const rows = (data ?? []).map((r: any) => ({
     id: r.id,
