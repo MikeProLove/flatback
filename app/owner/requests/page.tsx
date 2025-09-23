@@ -3,57 +3,62 @@ import { auth } from '@clerk/nextjs/server';
 import { redirect } from 'next/navigation';
 import { getSupabaseAdmin } from '@/lib/supabase-admin';
 import Actions from './Actions';
-import { money } from '@/lib/format';
 
 export const dynamic = 'force-dynamic';
+
+function money(val: number) {
+  try {
+    return new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', maximumFractionDigits: 0 }).format(Number.isFinite(val) ? val : 0);
+  } catch { return `${Math.round(val || 0)} ₽`; }
+}
+const isUuid = (v: unknown): v is string => typeof v === 'string' && /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(v);
 
 type Row = {
   id: string;
   status: 'pending' | 'approved' | 'declined' | 'cancelled';
   payment_status: 'pending' | 'paid' | 'refunded' | null;
-  start_date: string;
-  end_date: string;
+  start_date: string | null;
+  end_date: string | null;
   monthly_price: number | null;
   deposit: number | null;
-  listing_id: string;
-  tenant_id: string;
+  listing_id: string | null;
+  tenant_id: string | null;
   created_at: string;
-  // из вьюхи:
   listing_title: string | null;
   listing_city: string | null;
   cover_url: string | null;
 };
 
-async function getIncoming(ownerId: string) {
+async function getIncoming(ownerId: string): Promise<Row[]> {
   const sb = getSupabaseAdmin();
 
-  // 1) Берём заявки БЕЗ вложенных таблиц
   const { data: br } = await sb
     .from('booking_requests')
     .select('id,status,payment_status,start_date,end_date,monthly_price,deposit,created_at,tenant_id,listing_id')
     .eq('owner_id', ownerId)
     .order('created_at', { ascending: false });
 
-  const base = (br ?? []).map((r: any) => ({
+  const base: Row[] = (br ?? []).map((r: any) => ({
     id: r.id,
     status: r.status,
     payment_status: r.payment_status ?? 'pending',
-    start_date: r.start_date,
-    end_date: r.end_date,
+    start_date: r.start_date ?? null,
+    end_date: r.end_date ?? null,
     monthly_price: r.monthly_price,
     deposit: r.deposit,
-    listing_id: r.listing_id,
-    tenant_id: r.tenant_id,
+    listing_id: r.listing_id ?? null,
+    tenant_id: r.tenant_id ?? null,
     created_at: r.created_at,
-    listing_title: null as string | null,
-    listing_city: null as string | null,
-    cover_url: null as string | null,
-  })) as Row[];
+    listing_title: null,
+    listing_city: null,
+    cover_url: null,
+  }));
 
   if (base.length === 0) return base;
 
-  // 2) Подтягиваем данные объявлений из вьюхи
-  const ids = Array.from(new Set(base.map((r) => r.listing_id)));
+  const ids = Array.from(new Set(base.map((r) => r.listing_id).filter(isUuid)));
+  if (ids.length === 0) return base;
+
   const { data: lst } = await sb
     .from('listings_with_cover')
     .select('id,title,city,cover_url')
@@ -61,12 +66,15 @@ async function getIncoming(ownerId: string) {
 
   const map = new Map<string, { title: string | null; city: string | null; cover_url: string | null }>();
   for (const it of (lst ?? []) as any[]) {
-    map.set(it.id as string, { title: it.title ?? null, city: it.city ?? null, cover_url: it.cover_url ?? null });
+    map.set(String(it.id), { title: it.title ?? null, city: it.city ?? null, cover_url: it.cover_url ?? null });
   }
 
   return base.map((r) => {
-    const m = map.get(r.listing_id);
-    return { ...r, listing_title: m?.title ?? null, listing_city: m?.city ?? null, cover_url: m?.cover_url ?? null };
+    if (isUuid(r.listing_id)) {
+      const m = map.get(r.listing_id);
+      return { ...r, listing_title: m?.title ?? null, listing_city: m?.city ?? null, cover_url: m?.cover_url ?? null };
+    }
+    return r;
   });
 }
 
@@ -74,7 +82,12 @@ export default async function OwnerRequestsPage() {
   const { userId } = auth();
   if (!userId) redirect('/');
 
-  const rows = await getIncoming(userId);
+  let rows: Row[] = [];
+  try {
+    rows = await getIncoming(userId);
+  } catch {
+    rows = [];
+  }
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-10 space-y-6">
@@ -98,13 +111,11 @@ export default async function OwnerRequestsPage() {
                   <div className="p-4 space-y-2">
                     <div className="flex items-start justify-between gap-2">
                       <div className="space-y-1">
-                        <a href={`/listings/${r.listing_id}`} className="font-medium hover:underline">
+                        <a href={isUuid(r.listing_id) ? `/listings/${r.listing_id}` : '#'} className="font-medium hover:underline">
                           {r.listing_title ?? 'Объявление'}
                         </a>
                         <div className="text-sm text-muted-foreground">{r.listing_city ?? '—'}</div>
-                        <div className="text-xs">
-                          {new Date(r.start_date).toLocaleDateString('ru-RU')} — {new Date(r.end_date).toLocaleDateString('ru-RU')}
-                        </div>
+                        <div className="text-xs">{safeDate(r.start_date)} — {safeDate(r.end_date)}</div>
                       </div>
                       <div className="text-right text-sm">
                         <div className="font-semibold">{money(Number(r.monthly_price) || 0)} / мес</div>
@@ -114,16 +125,12 @@ export default async function OwnerRequestsPage() {
                             r.status === 'approved' ? 'text-green-600' :
                             r.status === 'declined' ? 'text-red-600' :
                             r.status === 'cancelled' ? 'text-gray-500' : 'text-yellow-600'
-                          }>
-                            {r.status}
-                          </span>
+                          }>{r.status}</span>
                           {' · '}
                           <span className={
                             r.payment_status === 'paid' ? 'text-green-600' :
                             r.payment_status === 'refunded' ? 'text-gray-600' : 'text-yellow-600'
-                          }>
-                            {r.payment_status}
-                          </span>
+                          }>{r.payment_status}</span>
                         </div>
                         {r.payment_status === 'paid' ? (
                           <div className="text-xs mt-1">Оплачено: {money(total)}</div>
@@ -131,7 +138,6 @@ export default async function OwnerRequestsPage() {
                       </div>
                     </div>
 
-                    {/* Владелец может принять/отклонить ТОЛЬКО pending */}
                     {r.status === 'pending' ? (
                       <div className="pt-2">
                         <Actions id={r.id} />
@@ -146,4 +152,9 @@ export default async function OwnerRequestsPage() {
       )}
     </div>
   );
+}
+
+function safeDate(d: any): string {
+  const dt = new Date(String(d));
+  return Number.isFinite(+dt) ? dt.toLocaleDateString('ru-RU') : '—';
 }
