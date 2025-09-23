@@ -16,23 +16,24 @@ type Row = {
   deposit: number | null;
   created_at: string;
   listing_id: string;
+  owner_id: string;
+  // заполним ниже из вьюхи:
   listing_title: string | null;
   listing_city: string | null;
   cover_url: string | null;
-  owner_id: string;
 };
 
 async function getMy(userId: string) {
   const sb = getSupabaseAdmin();
-  const { data } = await sb
-  .from('booking_requests')
-  .select(
-    'id,status,payment_status,start_date,end_date,monthly_price,deposit,created_at,listing_id,owner_id, listings ( title,city )'
-  )
-  .eq('tenant_id', userId)
-  .order('created_at', { ascending: false });
 
-  const rows = (data ?? []).map((r: any) => ({
+  // 1) Берём заявки БЕЗ вложенных таблиц
+  const { data: br, error } = await sb
+    .from('booking_requests')
+    .select('id,status,payment_status,start_date,end_date,monthly_price,deposit,created_at,listing_id,owner_id')
+    .eq('tenant_id', userId)
+    .order('created_at', { ascending: false });
+
+  const base = (br ?? []).map((r: any) => ({
     id: r.id,
     status: r.status,
     payment_status: r.payment_status ?? 'pending',
@@ -42,24 +43,30 @@ async function getMy(userId: string) {
     deposit: r.deposit,
     created_at: r.created_at,
     listing_id: r.listing_id,
-    listing_title: r.listings?.title ?? null,
-    listing_city: r.listings?.city ?? null,
     owner_id: r.owner_id as string,
+    listing_title: null as string | null,
+    listing_city: null as string | null,
+    cover_url: null as string | null,
   })) as Row[];
 
-  // подтянем обложки
-  const ids = rows.map((r) => r.listing_id);
-  const covers = new Map<string, string>();
-  if (ids.length) {
-    const { data: cov } = await sb
-      .from('listings_with_cover')
-      .select('id,cover_url')
-      .in('id', ids);
-    for (const c of (cov ?? []) as any[]) {
-      if (c.cover_url) covers.set(c.id, c.cover_url);
-    }
+  if (base.length === 0) return base;
+
+  // 2) Подтягиваем данные объявления из вьюхи одним IN
+  const ids = Array.from(new Set(base.map((r) => r.listing_id)));
+  const { data: lst } = await sb
+    .from('listings_with_cover')
+    .select('id,title,city,cover_url')
+    .in('id', ids);
+
+  const map = new Map<string, { title: string | null; city: string | null; cover_url: string | null }>();
+  for (const it of (lst ?? []) as any[]) {
+    map.set(it.id as string, { title: it.title ?? null, city: it.city ?? null, cover_url: it.cover_url ?? null });
   }
-  return rows.map((r) => ({ ...r, cover_url: covers.get(r.listing_id) ?? null }));
+
+  return base.map((r) => {
+    const m = map.get(r.listing_id);
+    return { ...r, listing_title: m?.title ?? null, listing_city: m?.city ?? null, cover_url: m?.cover_url ?? null };
+  });
 }
 
 export default async function RequestsPage() {
@@ -123,7 +130,6 @@ export default async function RequestsPage() {
                       </div>
                     </div>
 
-                    {/* Кнопки */}
                     <div className="pt-2 flex gap-8 items-center">
                       {r.status === 'pending' ? (
                         <button
@@ -148,7 +154,7 @@ export default async function RequestsPage() {
                             const res = await fetch(`/api/bookings/${r.id}`, {
                               method: 'PATCH',
                               headers: { 'Content-Type': 'application/json' },
-                              body: JSON.stringify({ action: 'pay', method: 'card' }), // mock-оплата картой
+                              body: JSON.stringify({ action: 'pay', method: 'card' }),
                             });
                             if (res.ok) location.reload();
                             else alert('Оплата не прошла');
