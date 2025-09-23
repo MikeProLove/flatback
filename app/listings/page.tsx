@@ -22,9 +22,10 @@ async function getData() {
   const sb = getSupabaseAdmin();
 
   // 1) берём объявления и cover_url из вьюхи
-  const { data } = await sb
+    const { data, error } = await sb
     .from('listings_with_cover')
-    .select('id,owner_id,user_id,title,price,city,rooms,area_total,cover_url,created_at,status')
+    .select('id,title,price,city,rooms,area_total,cover_url,created_at,status,owner_id,user_id')
+    .eq('status', 'published')              // ← только опубликованные
     .order('created_at', { ascending: false })
     .limit(24);
 
