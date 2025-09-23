@@ -9,7 +9,8 @@ export const dynamic = 'force-dynamic';
 
 type Row = {
   id: string;
-  status: string;
+  status: 'pending' | 'approved' | 'declined' | 'cancelled';
+  payment_status: 'pending' | 'paid' | 'refunded' | null;
   start_date: string;
   end_date: string;
   monthly_price: number | null;
@@ -26,13 +27,14 @@ async function getIncoming(ownerId: string) {
   const sb = getSupabaseAdmin();
   const { data } = await sb
     .from('booking_requests')
-    .select('id,status,start_date,end_date,monthly_price,deposit,created_at,tenant_id,listing_id, listings:listing_id(title,city)')
+    .select('id,status,payment_status,start_date,end_date,monthly_price,deposit,created_at,tenant_id,listing_id, listings:listing_id(title,city)')
     .eq('owner_id', ownerId)
     .order('created_at', { ascending: false });
 
   const rows = (data ?? []).map((r: any) => ({
     id: r.id,
     status: r.status,
+    payment_status: r.payment_status ?? 'pending',
     start_date: r.start_date,
     end_date: r.end_date,
     monthly_price: r.monthly_price,
@@ -44,7 +46,6 @@ async function getIncoming(ownerId: string) {
     listing_city: r.listings?.city ?? null,
   })) as Row[];
 
-  // обложки
   const ids = rows.map((r) => r.listing_id);
   const covers = new Map<string, string>();
   if (ids.length) {
@@ -75,44 +76,64 @@ export default async function OwnerRequestsPage() {
         </div>
       ) : (
         <div className="space-y-4">
-          {rows.map((r) => (
-            <div key={r.id} className="rounded-2xl border overflow-hidden">
-              <div className="grid grid-cols-[160px_1fr] gap-0">
-                <div className="bg-muted">
-                  {r.cover_url ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={r.cover_url} alt="" className="w-full h-full object-cover" />
-                  ) : null}
-                </div>
-                <div className="p-4 space-y-1">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="space-y-1">
-                      <a href={`/listings/${r.listing_id}`} className="font-medium hover:underline">
-                        {r.listing_title ?? 'Объявление'}
-                      </a>
-                      <div className="text-sm text-muted-foreground">{r.listing_city ?? '—'}</div>
-                      <div className="text-xs">
-                        {new Date(r.start_date).toLocaleDateString('ru-RU')} — {new Date(r.end_date).toLocaleDateString('ru-RU')}
-                      </div>
-                    </div>
-                    <div className="text-right text-sm">
-                      <div className="font-semibold">{money(Number(r.monthly_price) || 0)} / мес</div>
-                      {r.deposit ? <div className="text-muted-foreground">Залог: {money(Number(r.deposit))}</div> : null}
-                      <div className={`text-xs ${r.status === 'approved' ? 'text-green-600' : r.status === 'declined' ? 'text-red-600' : r.status === 'cancelled' ? 'text-gray-500' : 'text-yellow-600'}`}>
-                        {r.status}
-                      </div>
-                    </div>
+          {rows.map((r) => {
+            const total = (Number(r.monthly_price) || 0) + (Number(r.deposit) || 0);
+            return (
+              <div key={r.id} className="rounded-2xl border overflow-hidden">
+                <div className="grid grid-cols-[160px_1fr] gap-0">
+                  <div className="bg-muted">
+                    {r.cover_url ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={r.cover_url} alt="" className="w-full h-full object-cover" />
+                    ) : null}
                   </div>
-
-                  {r.status === 'pending' ? (
-                    <div className="pt-2">
-                      <Actions id={r.id} />
+                  <div className="p-4 space-y-2">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="space-y-1">
+                        <a href={`/listings/${r.listing_id}`} className="font-medium hover:underline">
+                          {r.listing_title ?? 'Объявление'}
+                        </a>
+                        <div className="text-sm text-muted-foreground">{r.listing_city ?? '—'}</div>
+                        <div className="text-xs">
+                          {new Date(r.start_date).toLocaleDateString('ru-RU')} — {new Date(r.end_date).toLocaleDateString('ru-RU')}
+                        </div>
+                      </div>
+                      <div className="text-right text-sm">
+                        <div className="font-semibold">{money(Number(r.monthly_price) || 0)} / мес</div>
+                        {r.deposit ? <div className="text-muted-foreground">Залог: {money(Number(r.deposit))}</div> : null}
+                        <div className="text-xs">
+                          <span className={
+                            r.status === 'approved' ? 'text-green-600' :
+                            r.status === 'declined' ? 'text-red-600' :
+                            r.status === 'cancelled' ? 'text-gray-500' : 'text-yellow-600'
+                          }>
+                            {r.status}
+                          </span>
+                          {' · '}
+                          <span className={
+                            r.payment_status === 'paid' ? 'text-green-600' :
+                            r.payment_status === 'refunded' ? 'text-gray-600' : 'text-yellow-600'
+                          }>
+                            {r.payment_status}
+                          </span>
+                        </div>
+                        {r.payment_status === 'paid' ? (
+                          <div className="text-xs mt-1">Оплачено: {money(total)}</div>
+                        ) : null}
+                      </div>
                     </div>
-                  ) : null}
+
+                    {/* Владелец может принять/отклонить ТОЛЬКО pending */}
+                    {r.status === 'pending' ? (
+                      <div className="pt-2">
+                        <Actions id={r.id} />
+                      </div>
+                    ) : null}
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
