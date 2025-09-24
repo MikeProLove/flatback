@@ -1,7 +1,6 @@
 import React from 'react';
 import { getSupabaseAdmin } from '@/lib/supabase-admin';
 import { money } from '@/lib/format';
-import BookWidget from './BookWidget';
 
 export const dynamic = 'force-dynamic';
 
@@ -22,17 +21,16 @@ type ListingRow = {
 async function getData() {
   const sb = getSupabaseAdmin();
 
-  // 1) берём объявления и cover_url из вьюхи
-    const { data, error } = await sb
+  const { data } = await sb
     .from('listings_with_cover')
     .select('id,title,price,city,rooms,area_total,cover_url,created_at,status,owner_id,user_id')
-    .eq('status', 'published')              // ← только опубликованные
+    .eq('status', 'published')
     .order('created_at', { ascending: false })
     .limit(24);
 
   const listings = (data ?? []) as ListingRow[];
 
-  // 2) Fallback из Storage для карточек без cover_url
+  // fallback для превью
   const fallback = new Map<string, string>();
   const tasks = listings
     .filter((l) => !l.cover_url)
