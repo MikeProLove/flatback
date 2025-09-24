@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { SignedOut, SignInButton } from '@clerk/nextjs';
 
 type Thread = {
   booking_id: string;
@@ -17,15 +18,22 @@ type Thread = {
 export default function ChatInboxPage() {
   const [rows, setRows] = useState<Thread[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [unauth, setUnauth] = useState(false);
 
   useEffect(() => {
     let alive = true;
     (async () => {
       try {
         const res = await fetch('/api/chats/threads', { cache: 'no-store' });
-        const j = await res.json();
-        if (!res.ok) throw new Error(j?.message || 'Ошибка загрузки');
-        if (alive) setRows(j.threads || []);
+        const text = await res.text();
+        let data: any = {};
+        try { data = text ? JSON.parse(text) : {}; } catch { /* text wasn't JSON */ }
+
+        if (!res.ok) {
+          if (res.status === 401) { if (alive) setUnauth(true); return; }
+          throw new Error(data?.message || text || 'Ошибка загрузки');
+        }
+        if (alive) setRows(data.threads || []);
       } catch (e: any) {
         if (alive) setErr(e?.message || 'Ошибка сети');
       }
@@ -37,7 +45,12 @@ export default function ChatInboxPage() {
     <div className="mx-auto max-w-3xl px-4 py-10 space-y-6">
       <h1 className="text-2xl font-semibold">Чаты</h1>
 
-      {err ? (
+      {unauth ? (
+        <div className="rounded-2xl border p-6 text-sm">
+          Чтобы увидеть диалоги,&nbsp;
+          <SignInButton mode="modal"><span className="underline cursor-pointer">войдите</span></SignInButton>.
+        </div>
+      ) : err ? (
         <div className="rounded-2xl border p-6 text-sm text-red-600">{err}</div>
       ) : rows === null ? (
         <div className="rounded-2xl border p-6 text-sm text-muted-foreground">Загрузка…</div>
