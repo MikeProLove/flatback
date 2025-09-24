@@ -1,5 +1,8 @@
 // app/api/requests/my/route.ts
 export const runtime = 'nodejs';
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';   // ⬅️ добавь
+export const revalidate = 0;              // ⬅️ можно тоже, чтобы не кэшили
 
 import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
@@ -70,7 +73,8 @@ export async function GET() {
         cover_url: m?.cover_url ?? null,
       };
     });
-
+    
+    return NextResponse.json({ rows }, { headers: { 'Cache-Control': 'no-store' } });
     return NextResponse.json({ rows });
   } catch (e: any) {
     console.error('[requests/my] GET', e);
