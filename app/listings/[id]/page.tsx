@@ -5,6 +5,7 @@ import { notFound } from 'next/navigation';
 import { getSupabaseAdmin } from '@/lib/supabase-admin';
 import { money } from '@/lib/format';
 import BookWidget from './BookWidget';
+import FavoriteButton from '../FavoriteButton';
 
 type Listing = {
   id: string;
@@ -83,6 +84,13 @@ export default async function ListingPage({ params }: { params: { id: string } }
           </div>
         </div>
 
+        <div className="flex items-center gap-2">
+          <h1 className="text-2xl font-semibold">{listing.title ?? 'Объявление'}</h1>
+          <div className="relative">
+            <FavoriteButton listingId={listing.id} />
+          </div>
+        </div>
+        
         <div className="text-right">
           <div className="text-xl font-semibold">{money(Number(listing.price) || 0)}</div>
           {typeof listing.deposit === 'number' ? (
