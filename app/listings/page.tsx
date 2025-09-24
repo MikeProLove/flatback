@@ -2,6 +2,7 @@ import React from 'react';
 import { getSupabaseAdmin } from '@/lib/supabase-admin';
 import { money } from '@/lib/format';
 import SearchBar from './SearchBar';
+import FavoriteButton from './FavoriteButton';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
