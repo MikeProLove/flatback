@@ -145,7 +145,9 @@ export default async function ListingsPage({ searchParams }: { searchParams: SP 
       <h1 className="text-2xl font-semibold">Объявления</h1>
 
       <SearchBar initial={initial} />
-
+        <div>
+          <SaveSearchButton />
+        </div>
       {listings.length === 0 ? (
         <div className="rounded-2xl border p-6 text-sm text-muted-foreground">
           Ничего не найдено. Попробуйте изменить фильтры или <a href="/listings" className="underline">сбросить поиск</a>.
