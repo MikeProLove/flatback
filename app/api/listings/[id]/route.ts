@@ -1,5 +1,7 @@
 // app/api/listings/[id]/route.ts
 export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
 import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
