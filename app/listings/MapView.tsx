@@ -161,11 +161,12 @@ export default function MapView({
 
   return (
     <div className="relative">
-      <div id="map-root" className="h-[70vh] rounded-2xl border overflow-hidden" />
+      {/* карта */}
+      <div id="map-root" className="h-[70vh] rounded-2xl border overflow-hidden z-0" />
 
-      {/* панель управления */}
-      <div className="absolute top-3 right-3 flex flex-col gap-2">
-        <div className="rounded-xl border bg-white/90 backdrop-blur px-3 py-2 text-sm shadow">
+      {/* панель управления — подняли поверх и включили клики только внутри карточки */}
+      <div className="absolute top-3 right-3 z-[1001] pointer-events-none">
+        <div className="rounded-xl border bg-white/90 backdrop-blur px-3 py-2 text-sm shadow pointer-events-auto">
           <div className="flex items-center gap-2">
             <span>Радиус:</span>
             <input
@@ -186,7 +187,9 @@ export default function MapView({
               Моя гео
             </button>
           </div>
-          <div className="mt-1 text-xs text-muted-foreground">{loading ? 'Загрузка…' : `Найдено: ${count}`}</div>
+          <div className="mt-1 text-xs text-muted-foreground">
+            {loading ? 'Загрузка…' : `Найдено: ${count}`}
+          </div>
         </div>
       </div>
     </div>
