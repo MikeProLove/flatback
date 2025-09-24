@@ -1,6 +1,7 @@
 import React from 'react';
 import { getSupabaseAdmin } from '@/lib/supabase-admin';
 import { money } from '@/lib/format';
+import BookWidget from './BookWidget';
 
 export const dynamic = 'force-dynamic';
 
