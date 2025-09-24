@@ -34,6 +34,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <Link href="/listings/my">Мои объявления</Link>
               <Link href="/requests">Мои заявки</Link>
               <Link href="/owner/requests">Заявки на мои</Link>
+              <Link href="/favorites">Избранное</Link>
             </nav>
 
             <div className="ml-auto flex items-center gap-3">
