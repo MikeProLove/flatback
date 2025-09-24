@@ -79,11 +79,16 @@ async function getData(sp: SP) {
   if (withPhotos) q = q.not('cover_url', 'is', null);
 
   // сортировка
-  const sort = take(sp, 'sort') || 'latest';
-  if (sort === 'price_asc') q = q.order('price', { ascending: true, nullsFirst: true });
-  else if (sort === 'price_desc') q = q.order('price', { ascending: false, nullsLast: true });
-  else if (sort === 'area_desc') q = q.order('area_total', { ascending: false, nullsLast: true });
-  else q = q.order('created_at', { ascending: false });
+    const sort = take(sp, 'sort') || 'latest';
+  if (sort === 'price_asc') {
+    q = q.order('price', { ascending: true, nullsFirst: true });
+  } else if (sort === 'price_desc') {
+    q = q.order('price', { ascending: false, nullsFirst: false }); // было nullsLast
+  } else if (sort === 'area_desc') {
+    q = q.order('area_total', { ascending: false, nullsFirst: false }); // было nullsLast
+  } else {
+    q = q.order('created_at', { ascending: false });
+  }
 
   // диапазон
   const { data, count } = await q.range(from, to);
