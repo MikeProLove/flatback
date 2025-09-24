@@ -1,8 +1,7 @@
 // app/api/requests/my/route.ts
 export const runtime = 'nodejs';
-export const runtime = 'nodejs';
-export const dynamic = 'force-dynamic';   // ⬅️ добавь
-export const revalidate = 0;              // ⬅️ можно тоже, чтобы не кэшили
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
 import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
@@ -19,7 +18,7 @@ export async function GET() {
 
     const sb = getSupabaseAdmin();
 
-    // Заявки арендатора (без вложенных таблиц)
+    // заявки арендатора (без вложенных таблиц)
     const { data: br, error } = await sb
       .from('booking_requests')
       .select(
@@ -46,7 +45,7 @@ export async function GET() {
       cover_url: null as string | null,
     }));
 
-    // Подтягиваем мета объявлений только для валидных UUID
+    // подтягиваем мету объявлений только для валидных UUID
     const ids = Array.from(new Set(base.map((r) => r.listing_id).filter(isUuid)));
     let coverMap = new Map<string, { title: string | null; city: string | null; cover_url: string | null }>();
 
@@ -73,14 +72,16 @@ export async function GET() {
         cover_url: m?.cover_url ?? null,
       };
     });
-    
-    return NextResponse.json({ rows }, { headers: { 'Cache-Control': 'no-store' } });
-    return NextResponse.json({ rows });
+
+    return NextResponse.json(
+      { rows },
+      { headers: { 'Cache-Control': 'no-store, no-cache, must-revalidate' } }
+    );
   } catch (e: any) {
     console.error('[requests/my] GET', e);
     return NextResponse.json(
       { error: 'server_error', message: e?.message ?? 'Internal' },
-      { status: 500 }
+      { status: 500, headers: { 'Cache-Control': 'no-store' } }
     );
   }
 }
