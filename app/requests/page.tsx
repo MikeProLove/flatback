@@ -169,7 +169,7 @@ export default function RequestsPage() {
                             const res = await fetch(`/api/bookings/${r.id}`, {
                               method: 'PATCH',
                               headers: { 'Content-Type': 'application/json' },
-                              body: JSON.stringify({ action: 'pay', method: 'card' }), // mock-оплата
+                              body: JSON.stringify({ action: 'pay', method: 'card' }),
                             });
                             if (res.ok) location.reload();
                             else alert('Оплата не прошла');
@@ -179,6 +179,11 @@ export default function RequestsPage() {
                           Оплатить {money(total)}
                         </button>
                       ) : null}
+
+                      {/* Кнопка чата */}
+                      <a href={`/chat/${r.id}`} className="text-sm underline">
+                        Чат
+                      </a>
                     </div>
                   </div>
                 </div>
