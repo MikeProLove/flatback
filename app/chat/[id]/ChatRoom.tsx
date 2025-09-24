@@ -28,13 +28,15 @@ export default function ChatRoom({ bookingId }: { bookingId: string }) {
       setMessages(j.messages || []);
       setErr(null);
       setLoading(false);
+      // пометить прочитанным
+      fetch(`/api/chats/${bookingId}/read`, { method: 'POST' }).catch(() => {});
       setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 0);
     } catch (e: any) {
       setErr(e?.message || 'Ошибка сети');
       setLoading(false);
     }
   };
-
+  
   useEffect(() => {
     let alive = true;
     (async () => { if (alive) await load(); })();
@@ -42,7 +44,7 @@ export default function ChatRoom({ bookingId }: { bookingId: string }) {
     return () => { alive = false; clearInterval(t); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bookingId]);
-
+  
   const send = async () => {
     const body = text.trim();
     if (!body || sending) return;
