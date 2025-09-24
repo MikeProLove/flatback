@@ -1,8 +1,8 @@
+// app/listings/page.tsx
 import React from 'react';
 import { getSupabaseAdmin } from '@/lib/supabase-admin';
 import { money } from '@/lib/format';
 import SearchBar from './SearchBar';
-import FavoriteButton from './FavoriteButton';
 import SaveSearchButton from './SaveSearchButton';
 
 export const runtime = 'nodejs';
@@ -29,7 +29,8 @@ const num = (v?: string) => {
   const n = Number(v);
   return Number.isFinite(n) ? n : null;
 };
-const take = (sp: SP, key: string) => (typeof sp[key] === 'string' ? (sp[key] as string) : undefined);
+const take = (sp: SP, key: string) =>
+  typeof sp[key] === 'string' ? (sp[key] as string) : undefined;
 const sanitizeLike = (s: string) => s.replace(/[%_]/g, '\\$&').replace(/,/g, ' ');
 
 async function getData(sp: SP) {
@@ -44,7 +45,10 @@ async function getData(sp: SP) {
   // базовый запрос (только опубликованные)
   let q = sb
     .from('listings_with_cover')
-    .select('id,title,price,city,rooms,area_total,cover_url,created_at,status,owner_id,user_id', { count: 'exact' })
+    .select(
+      'id,title,price,city,rooms,area_total,cover_url,created_at,status,owner_id,user_id',
+      { count: 'exact' }
+    )
     .eq('status', 'published');
 
   // строка поиска по нескольким полям
@@ -55,7 +59,7 @@ async function getData(sp: SP) {
       `title.ilike.${pat}`,
       `city.ilike.${pat}`,
       `address.ilike.${pat}`,
-      `description.ilike.${pat}`
+      `description.ilike.${pat}`,
     ].join(',');
     q = q.or(or);
   }
@@ -81,13 +85,13 @@ async function getData(sp: SP) {
   if (withPhotos) q = q.not('cover_url', 'is', null);
 
   // сортировка
-    const sort = take(sp, 'sort') || 'latest';
+  const sort = take(sp, 'sort') || 'latest';
   if (sort === 'price_asc') {
     q = q.order('price', { ascending: true, nullsFirst: true });
   } else if (sort === 'price_desc') {
-    q = q.order('price', { ascending: false, nullsFirst: false }); // было nullsLast
+    q = q.order('price', { ascending: false, nullsFirst: false }); // nullsLast недоступен в типах
   } else if (sort === 'area_desc') {
-    q = q.order('area_total', { ascending: false, nullsFirst: false }); // было nullsLast
+    q = q.order('area_total', { ascending: false, nullsFirst: false });
   } else {
     q = q.order('created_at', { ascending: false });
   }
@@ -125,32 +129,58 @@ async function getData(sp: SP) {
 export default async function ListingsPage({ searchParams }: { searchParams: SP }) {
   const { listings, fallback, page, hasPrev, hasNext } = await getData(searchParams);
 
-  // Пробросим значения в форму
+  // значения фильтров для формы и ссылок
   const initial: Record<string, string> = {};
-  for (const k of ['q','city','rooms','price_min','price_max','area_min','area_max','sort','with_photos']) {
+  for (const k of [
+    'q',
+    'city',
+    'rooms',
+    'price_min',
+    'price_max',
+    'area_min',
+    'area_max',
+    'sort',
+    'with_photos',
+  ]) {
     const v = take(searchParams, k);
     if (typeof v === 'string') initial[k] = v;
   }
 
+  // ссылки "Список/Карта" с текущими query-параметрами
+  const qsNow = new URLSearchParams(initial).toString();
+  const mapHref = qsNow ? `/listings/map?${qsNow}` : '/listings/map';
+
   // Навигация страниц
-  const qs = new URLSearchParams(initial);
   const pageURL = (p: number) => {
-    const params = new URLSearchParams(qs.toString());
+    const params = new URLSearchParams(initial);
     params.set('page', String(p));
     return `/listings?${params.toString()}`;
   };
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-10 space-y-6">
-      <h1 className="text-2xl font-semibold">Объявления</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-semibold">Объявления</h1>
 
-      <SearchBar initial={initial} />
-        <div>
+        {/* ← БЛОК «Просмотр: Список · Карта» + кнопка «Сохранить поиск» */}
+        <div className="flex items-center gap-4">
+          <div className="text-sm text-muted-foreground">
+            Просмотр: <a href="/listings" className="underline">Список</a> ·{' '}
+            <a href={mapHref} className="underline">Карта</a>
+          </div>
           <SaveSearchButton />
         </div>
+      </div>
+
+      <SearchBar initial={initial} />
+
       {listings.length === 0 ? (
         <div className="rounded-2xl border p-6 text-sm text-muted-foreground">
-          Ничего не найдено. Попробуйте изменить фильтры или <a href="/listings" className="underline">сбросить поиск</a>.
+          Ничего не найдено. Попробуйте изменить фильтры или{' '}
+          <a href="/listings" className="underline">
+            сбросить поиск
+          </a>
+          .
         </div>
       ) : (
         <>
@@ -158,22 +188,23 @@ export default async function ListingsPage({ searchParams }: { searchParams: SP 
             {listings.map((l) => {
               const cover = l.cover_url || fallback.get(l.id);
               return (
-                <a key={l.id} href={`/listings/${l.id}`} className="rounded-2xl border hover:shadow transition overflow-hidden">
-                  <div className="aspect-[4/3] bg-muted relative">
+                <a
+                  key={l.id}
+                  href={`/listings/${l.id}`}
+                  className="rounded-2xl border hover:shadow transition overflow-hidden"
+                >
+                  <div className="aspect-[4/3] bg-muted">
                     {cover ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img src={cover} alt="" className="w-full h-full object-cover" loading="lazy" />
                     ) : null}
-                    <FavoriteButton listingId={l.id} />
-                  </div>  
+                  </div>
                   <div className="p-4 space-y-2">
                     <div className="text-lg font-semibold">{l.title ?? 'Объявление'}</div>
                     <div className="text-sm text-muted-foreground">
                       {l.city ?? '—'} · {l.rooms ?? '—'}к · {l.area_total ?? '—'} м²
                     </div>
-                    <div className="text-base font-semibold">
-                      {money(Number(l.price) || 0)}
-                    </div>
+                    <div className="text-base font-semibold">{money(Number(l.price) || 0)}</div>
                   </div>
                 </a>
               );
@@ -182,9 +213,17 @@ export default async function ListingsPage({ searchParams }: { searchParams: SP 
 
           {/* Пагинация */}
           <div className="flex items-center justify-center gap-3 pt-4">
-            {hasPrev ? <a href={pageURL(page - 1)} className="px-3 py-1 border rounded-md text-sm">Назад</a> : null}
+            {hasPrev ? (
+              <a href={pageURL(page - 1)} className="px-3 py-1 border rounded-md text-sm">
+                Назад
+              </a>
+            ) : null}
             <div className="text-sm text-muted-foreground">Стр. {page}</div>
-            {hasNext ? <a href={pageURL(page + 1)} className="px-3 py-1 border rounded-md text-sm">Вперёд</a> : null}
+            {hasNext ? (
+              <a href={pageURL(page + 1)} className="px-3 py-1 border rounded-md text-sm">
+                Вперёд
+              </a>
+            ) : null}
           </div>
         </>
       )}
