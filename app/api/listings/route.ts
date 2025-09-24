@@ -5,19 +5,24 @@ export const revalidate = 0;
 
 import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
-import { randomUUID } from 'crypto';
+import { getSupabaseServer } from '@/lib/supabase-server';
 import { getSupabaseAdmin } from '@/lib/supabase-admin';
 
-function bool(v: FormDataEntryValue | null) {
-  return v === 'on' || v === 'true' || v === '1';
+function str(form: FormData, name: string): string | null {
+  const v = form.get(name);
+  if (v == null) return null;
+  const s = String(v).trim();
+  return s === '' ? null : s;
 }
-function num(v: FormDataEntryValue | null) {
+function num(form: FormData, name: string): number | null {
+  const v = form.get(name);
+  if (v == null || v === '') return null;
   const n = Number(v);
   return Number.isFinite(n) ? n : null;
 }
-function str(v: FormDataEntryValue | null) {
-  const s = (v as string) ?? '';
-  return s.length ? s : null;
+function bool(form: FormData, name: string): boolean {
+  // чекбокс приходит как "on" при наличии
+  return form.has(name) && String(form.get(name)).toLowerCase() !== 'false';
 }
 
 export async function POST(req: Request) {
@@ -27,99 +32,91 @@ export async function POST(req: Request) {
 
     const form = await req.formData();
 
-    // ---- поля
-    const title = str(form.get('title'));
-    const price = num(form.get('price')) ?? 0;
-    const currency = (form.get('currency') as string) || 'RUB';
+    // --- ЧИТАЕМ ПОЛЯ ФОРМЫ ---
+    const title = str(form, 'title') ?? 'Объявление'; // ← дефолт, чтобы не падало на NOT NULL
+    const city = str(form, 'city');
+    const address = str(form, 'address');
+    const district = str(form, 'district');
+    const description = str(form, 'description');
+    const currency = (str(form, 'currency') ?? 'RUB') as 'RUB' | 'USD' | 'EUR';
 
-    const rooms = num(form.get('rooms'));
-    const area_total = num(form.get('area_total'));
-    const area_living = num(form.get('area_living'));
-    const area_kitchen = num(form.get('area_kitchen'));
+    const metro = str(form, 'metro');
+    const metro_distance_min = num(form, 'metro_distance_min');
 
-    const floor = num(form.get('floor'));
-    const floors_total = num(form.get('floors_total'));
+    const rooms = num(form, 'rooms');
+    const area_total = num(form, 'area_total');
+    const area_living = num(form, 'area_living');
+    const area_kitchen = num(form, 'area_kitchen');
 
-    const address = str(form.get('address'));
-    const city = str(form.get('city'));
-    const district = str(form.get('district'));
-    const metro = str(form.get('metro'));
-    const metro_distance_min = num(form.get('metro_distance_min'));
+    const floor = num(form, 'floor');
+    const floors_total = num(form, 'floors_total');
 
-    const lat = num(form.get('lat'));
-    const lng = num(form.get('lng'));
+    const price = num(form, 'price');
+    const deposit = num(form, 'deposit');
 
-    const description = str(form.get('description'));
+    const lat = num(form, 'lat');
+    const lng = num(form, 'lng');
 
-    const deposit = num(form.get('deposit'));
-    const utilities_included = bool(form.get('utilities_included'));
-    const pets_allowed = bool(form.get('pets_allowed'));
-    const kids_allowed = bool(form.get('kids_allowed'));
-    const available_from = str(form.get('available_from'));
-    const min_term_months = num(form.get('min_term_months'));
+    const available_from = str(form, 'available_from');
+    const min_term_months = num(form, 'min_term_months');
 
-    const building_type = str(form.get('building_type'));
-    const renovation = str(form.get('renovation'));
-    const furniture = str(form.get('furniture'));
-    const balcony = bool(form.get('balcony'));
-    const bathroom = str(form.get('bathroom'));
-    const ceiling_height = num(form.get('ceiling_height'));
-    const parking = str(form.get('parking'));
-    const internet = bool(form.get('internet'));
-    const concierge = bool(form.get('concierge'));
-    const security = bool(form.get('security'));
-    const lift = bool(form.get('lift'));
+    const building_type = str(form, 'building_type');
+    const renovation = str(form, 'renovation');
+    const furniture = str(form, 'furniture');
+    const appliances = str(form, 'appliances');
+    const balcony = str(form, 'balcony');
+    const bathroom = str(form, 'bathroom');
+    const ceiling_height = num(form, 'ceiling_height');
+    const parking = str(form, 'parking');
+    const internet = str(form, 'internet');
+    const concierge = str(form, 'concierge');
+    const security = str(form, 'security');
+    const lift = str(form, 'lift');
 
-    const appliances = {
-      fridge: bool(form.get('appl_fridge')),
-      washer: bool(form.get('appl_washer')),
-      dishwasher: bool(form.get('appl_dishwasher')),
-      oven: bool(form.get('appl_oven')),
-      microwave: bool(form.get('appl_microwave')),
-      tv: bool(form.get('appl_tv')),
-      ac: bool(form.get('appl_ac')),
-    };
+    const utilities_included = bool(form, 'utilities_included');
+    const pets_allowed = bool(form, 'pets_allowed');
+    const kids_allowed = bool(form, 'kids_allowed');
 
-    const tour_url = str(form.get('tour_url'));
-    const tourFile = form.get('tour_file') as File | null;
-    const photos = form.getAll('photos') as File[];
+    const tour_url = str(form, 'tour_url'); // если даёшь ссылкой
 
-    // --- админ-клиент Supabase (service role) — обходит RLS
-    const sb = getSupabaseAdmin();
+    const supabase = getSupabaseServer(); // для таблиц под RLS, если есть
+    const admin = getSupabaseAdmin();     // для storage
 
-    // 1) запись объявления
-    const { data: listingRows, error: insErr } = await sb
+    // 1) создаём запись в listings
+    const { data: listingRows, error: insErr } = await supabase
       .from('listings')
       .insert({
-        // ВАЖНО: заполняем owner_id, чтобы удовлетворить NOT NULL
-        owner_id: userId,
-        // (оставляем и user_id, если он у тебя используется где-то ещё)
-        user_id: userId,
-
+        owner_id: userId,       // важно: заполняем владельца
+        user_id: userId,        // если колонка есть — тоже заполним
         status: 'draft',
+
         title,
-        price,
+        city,
+        address,
+        district,
+        description,
+
         currency,
+        price,
+        deposit,
+
         rooms,
         area_total,
         area_living,
         area_kitchen,
+
         floor,
         floors_total,
-        address,
-        city,
-        district,
+
         metro,
         metro_distance_min,
+
         lat,
         lng,
-        description,
-        deposit,
-        utilities_included,
-        pets_allowed,
-        kids_allowed,
+
         available_from,
         min_term_months,
+
         building_type,
         renovation,
         furniture,
@@ -132,36 +129,38 @@ export async function POST(req: Request) {
         concierge,
         security,
         lift,
+
         tour_url,
       })
       .select('id')
       .limit(1);
 
     if (insErr || !listingRows?.[0]) {
-      console.error('[listings] insert error', insErr);
+      console.error('[listings] insert', insErr);
       return NextResponse.json(
-        { error: 'insert_failed', message: insErr?.message ?? 'Failed to create listing' },
+        { error: 'insert_failed', message: insErr?.message || 'Failed to create listing' },
         { status: 500 }
       );
     }
 
     const listingId = listingRows[0].id as string;
 
-    // 2) фото -> Storage (публичный URL) -> listing_photos
+    // 2) фото — загружаем в storage и пишем в listing_photos
+    const photos = form.getAll('photos') as File[];
     const uploaded: { url: string; path: string }[] = [];
     for (const f of photos) {
       if (!f || f.size === 0) continue;
       const ext = (f.name.split('.').pop() || 'jpg').toLowerCase();
-      const path = `${userId}/${listingId}/${randomUUID()}.${ext}`;
-      const up = await sb.storage.from('listings').upload(path, f, {
-        contentType: f.type || 'image/jpeg',
+      const path = `${userId}/${listingId}/${crypto.randomUUID()}.${ext}`;
+      const up = await admin.storage.from('listings').upload(path, f, {
+        contentType: f.type,
         upsert: false,
       });
       if (up.error) {
         console.error('[storage] photo upload', up.error);
         continue;
       }
-      const pub = sb.storage.from('listings').getPublicUrl(path);
+      const pub = admin.storage.from('listings').getPublicUrl(path);
       uploaded.push({ url: pub.data.publicUrl, path });
     }
 
@@ -172,20 +171,21 @@ export async function POST(req: Request) {
         storage_path: u.path,
         sort_order: idx,
       }));
-      const { error: photoErr } = await sb.from('listing_photos').insert(rows);
+      const { error: photoErr } = await supabase.from('listing_photos').insert(rows);
       if (photoErr) console.error('[listing_photos] insert', photoErr);
     }
 
-    // 3) 3D-тур (если файл)
+    // 3) 3D-тур — файл
+    const tourFile = form.get('tour_file') as File | null;
     if (tourFile && tourFile.size > 0) {
       const ext = (tourFile.name.split('.').pop() || 'bin').toLowerCase();
-      const tpath = `${userId}/${listingId}/${randomUUID()}.${ext}`;
-      const up = await sb.storage.from('listings-3d').upload(tpath, tourFile, {
-        contentType: tourFile.type || 'application/octet-stream',
+      const tpath = `${userId}/${listingId}/${crypto.randomUUID()}.${ext}`;
+      const up = await admin.storage.from('listings-3d').upload(tpath, tourFile, {
+        contentType: tourFile.type,
         upsert: false,
       });
       if (!up.error) {
-        await sb.from('listings').update({ tour_file_path: tpath }).eq('id', listingId);
+        await supabase.from('listings').update({ tour_file_path: tpath }).eq('id', listingId);
       } else {
         console.error('[storage] tour upload', up.error);
       }
@@ -194,6 +194,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ id: listingId });
   } catch (e: any) {
     console.error('[listings] POST error', e);
-    return NextResponse.json({ error: 'server_error', message: e?.message ?? 'Internal error' }, { status: 500 });
+    return NextResponse.json({ error: 'server_error', message: e?.message ?? 'Internal' }, { status: 500 });
   }
 }
