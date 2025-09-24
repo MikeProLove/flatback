@@ -156,12 +156,13 @@ export default async function ListingsPage({ searchParams }: { searchParams: SP 
               const cover = l.cover_url || fallback.get(l.id);
               return (
                 <a key={l.id} href={`/listings/${l.id}`} className="rounded-2xl border hover:shadow transition overflow-hidden">
-                  <div className="aspect-[4/3] bg-muted">
+                  <div className="aspect-[4/3] bg-muted relative">
                     {cover ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img src={cover} alt="" className="w-full h-full object-cover" loading="lazy" />
                     ) : null}
-                  </div>
+                    <FavoriteButton listingId={l.id} />
+                  </div>  
                   <div className="p-4 space-y-2">
                     <div className="text-lg font-semibold">{l.title ?? 'Объявление'}</div>
                     <div className="text-sm text-muted-foreground">
