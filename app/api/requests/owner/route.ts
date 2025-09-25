@@ -21,12 +21,13 @@ export async function PATCH(req: Request) {
 
     const sb = getSupabaseAdmin();
 
-    // проверяем, что заявка на моё объявление
+    // Проверяем, что это заявка на моё объявление
     const { data: rows, error: selErr } = await sb
-      .from('bookings')
+      .from('booking_requests')
       .select('id,owner_id,status,payment_status')
       .eq('id', body.id)
       .limit(1);
+
     if (selErr) return NextResponse.json({ error: 'db', message: selErr.message }, { status: 500 });
     const found = rows?.[0];
     if (!found) return NextResponse.json({ error: 'not_found' }, { status: 404 });
@@ -50,7 +51,11 @@ export async function PATCH(req: Request) {
         return NextResponse.json({ error: 'bad_action' }, { status: 400 });
     }
 
-    const { error: upErr } = await sb.from('bookings').update(patch).eq('id', body.id);
+    const { error: upErr } = await sb
+      .from('booking_requests')
+      .update(patch)
+      .eq('id', body.id);
+
     if (upErr) return NextResponse.json({ error: 'db', message: upErr.message }, { status: 500 });
 
     return NextResponse.json({ ok: true });
