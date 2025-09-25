@@ -45,7 +45,7 @@ export default function FavoriteButton({
       type="button"
       onClick={onClick}
       disabled={busy}
-      className="w-10 h-10 rounded-full bg-white/95 border shadow flex items-center justify-center hover:shadow-md focus:outline-none"
+      className="grid place-items-center w-10 h-10 rounded-full bg-white/95 border shadow hover:shadow-md focus:outline-none"
       style={{ lineHeight: 0 }}
       aria-label={on ? 'Убрать из избранного' : 'В избранное'}
       title={on ? 'Убрать из избранного' : 'В избранное'}
