@@ -7,7 +7,7 @@ import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { getSupabaseAdmin } from '@/lib/supabase-admin';
 
-export async function PATCH(req: Request) {
+async function toggle(req: Request) {
   try {
     const { userId } = auth();
     if (!userId) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
@@ -47,8 +47,8 @@ export async function PATCH(req: Request) {
         .from('favorites')
         .insert({ user_id: userId, listing_id });
       if (insErr) {
-        // если кто-то успел вставить параллельно — считаем «в избранном»
-        if (insErr.code === '23505') {
+        // гонка по уникальному индексу: считаем "уже в избранном"
+        if ((insErr as any).code === '23505') {
           return NextResponse.json({ ok: true, favorited: true });
         }
         console.error('[favorites] insert', insErr);
@@ -57,7 +57,11 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ ok: true, favorited: true });
     }
   } catch (e: any) {
-    console.error('[favorites] PATCH', e);
+    console.error('[favorites] toggle', e);
     return NextResponse.json({ error: 'server_error', message: e?.message ?? 'Internal' }, { status: 500 });
   }
 }
+
+// Совместимость: и PATCH, и POST
+export async function PATCH(req: Request) { return toggle(req); }
+export async function POST(req: Request)  { return toggle(req); }
