@@ -21,9 +21,7 @@ type Props = {
 };
 
 declare global {
-  interface Window {
-    L?: any;
-  }
+  interface Window { L?: any }
 }
 
 function buildQS(params: Record<string, any>) {
@@ -35,7 +33,7 @@ function buildQS(params: Record<string, any>) {
 }
 
 export default function MapView({
-  initialCenter = { lat: 55.751244, lng: 37.618423 }, // Москва
+  initialCenter = { lat: 55.751244, lng: 37.618423 },
   initialRadiusKm = 5,
   filters = {},
 }: Props) {
@@ -47,7 +45,6 @@ export default function MapView({
   const [loading, setLoading] = useState(false);
   const [count, setCount] = useState(0);
 
-  // подгружаем Leaflet с CDN один раз
   useEffect(() => {
     const ensureLeaflet = async () => {
       if (window.L) return;
@@ -99,7 +96,6 @@ export default function MapView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // обновляем круг при изменении центра/радиуса
   useEffect(() => {
     if (!window.L || !circleRef.current) return;
     circleRef.current.setLatLng([center.lat, center.lng]);
@@ -122,17 +118,15 @@ export default function MapView({
       rows.forEach((it) => {
         if (it.lat == null || it.lng == null) return;
         const m = L.marker([it.lat, it.lng]);
-        const price = new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', maximumFractionDigits: 0 })
-          .format(Number(it.price || 0));
-        const html = `
-          <div style="min-width:200px">
-            ${it.cover_url ? `<img src="${it.cover_url}" style="width:100%;height:120px;object-fit:cover;border-radius:10px;margin-bottom:6px" />` : ''}
-            <div style="font-weight:600;margin-bottom:2px">${it.title ?? 'Объявление'}</div>
-            <div style="font-size:12px;color:#6b7280;margin-bottom:4px">${it.city ?? ''} · ${it.rooms ?? '—'}к · ${it.area_total ?? '—'} м²</div>
-            <div style="font-weight:600;margin-bottom:6px">${price}</div>
-            <a href="/listings/${it.id}" style="text-decoration:underline">Открыть</a>
-          </div>`;
-        m.bindPopup(html);
+
+        // по клику сразу открываем объявление
+        m.on('click', () => {
+          window.location.href = `/listings/${it.id}`;
+        });
+
+        // лёгкая подсказка
+        m.bindTooltip(it.title ?? 'Объявление', { direction: 'top', opacity: 0.9 });
+
         m.addTo(markersRef.current);
       });
 
@@ -161,10 +155,7 @@ export default function MapView({
 
   return (
     <div className="relative">
-      {/* карта */}
       <div id="map-root" className="h-[70vh] rounded-2xl border overflow-hidden z-0" />
-
-      {/* панель управления — подняли поверх и включили клики только внутри карточки */}
       <div className="absolute top-3 right-3 z-[1001] pointer-events-none">
         <div className="rounded-xl border bg-white/90 backdrop-blur px-3 py-2 text-sm shadow pointer-events-auto">
           <div className="flex items-center gap-2">
