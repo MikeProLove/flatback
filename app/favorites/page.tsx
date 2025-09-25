@@ -4,9 +4,8 @@ export const dynamic = 'force-dynamic';
 import { money } from '@/lib/format';
 
 async function getData() {
-  const res = await fetch(`${process.env.NEXT_PUBLIC_SITE_URL || ''}/api/favorites/my`, {
-    cache: 'no-store',
-  }).catch(() => null);
+  // относительный вызов API — работает на сервере в контексте запроса
+  const res = await fetch('/api/favorites/my', { cache: 'no-store' }).catch(() => null);
   if (!res || !res.ok) return { rows: [] as any[] };
   const j = await res.json();
   return { rows: (j.rows ?? []) as any[] };
