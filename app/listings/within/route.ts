@@ -70,7 +70,7 @@ export async function GET(req: Request) {
       .lte('lng', box.maxLng)
       .order('created_at', { ascending: false });
 
-    if (filters.city) q = q.ilike('city', filters.city);
+    if (filters.city) q = q.ilike('city', `%${filters.city}%`);
     if (filters.rooms != null) q = q.eq('rooms', filters.rooms);
     if (filters.price_min != null) q = q.gte('price', filters.price_min);
     if (filters.price_max != null) q = q.lte('price', filters.price_max);
