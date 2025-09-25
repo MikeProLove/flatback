@@ -21,8 +21,38 @@ function num(form: FormData, name: string): number | null {
   return Number.isFinite(n) ? n : null;
 }
 function bool(form: FormData, name: string): boolean {
-  // чекбокс приходит как "on" при наличии
   return form.has(name) && String(form.get(name)).toLowerCase() !== 'false';
+}
+
+// простой геокодер через Nominatim OSM
+async function geocodeAddress(q: string): Promise<{ lat: number; lng: number } | null> {
+  try {
+    const url = new URL('https://nominatim.openstreetmap.org/search');
+    url.searchParams.set('format', 'json');
+    url.searchParams.set('limit', '1');
+    url.searchParams.set('addressdetails', '1');
+    url.searchParams.set('q', q);
+
+    const res = await fetch(url.toString(), {
+      headers: {
+        // Nominatim просит идентифицировать приложение
+        'User-Agent': 'Flatback/1.0 (contact@flatback.ru)',
+        'Accept': 'application/json',
+      },
+      // маленькая защита от долгих зависаний
+      cache: 'no-store',
+    });
+    if (!res.ok) return null;
+    const arr = await res.json();
+    if (Array.isArray(arr) && arr[0]) {
+      const lat = Number(arr[0].lat);
+      const lng = Number(arr[0].lon);
+      if (Number.isFinite(lat) && Number.isFinite(lng)) return { lat, lng };
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 export async function POST(req: Request) {
@@ -33,7 +63,7 @@ export async function POST(req: Request) {
     const form = await req.formData();
 
     // --- ЧИТАЕМ ПОЛЯ ФОРМЫ ---
-    const title = str(form, 'title') ?? 'Объявление'; // ← дефолт, чтобы не падало на NOT NULL
+    const title = str(form, 'title') ?? 'Объявление';
     const city = str(form, 'city');
     const address = str(form, 'address');
     const district = str(form, 'district');
@@ -54,8 +84,19 @@ export async function POST(req: Request) {
     const price = num(form, 'price');
     const deposit = num(form, 'deposit');
 
-    const lat = num(form, 'lat');
-    const lng = num(form, 'lng');
+    // координаты: либо пришли из формы, либо получим из геокодера
+    let lat = num(form, 'lat');
+    let lng = num(form, 'lng');
+
+    // если координат нет, пробуем геокодить по адресу
+    if ((lat == null || lng == null) && (city || address)) {
+      const q = [city, address].filter(Boolean).join(', ');
+      const geo = await geocodeAddress(q);
+      if (geo) {
+        lat = geo.lat;
+        lng = geo.lng;
+      }
+    }
 
     const available_from = str(form, 'available_from');
     const min_term_months = num(form, 'min_term_months');
@@ -77,17 +118,17 @@ export async function POST(req: Request) {
     const pets_allowed = bool(form, 'pets_allowed');
     const kids_allowed = bool(form, 'kids_allowed');
 
-    const tour_url = str(form, 'tour_url'); // если даёшь ссылкой
+    const tour_url = str(form, 'tour_url');
 
-    const supabase = getSupabaseServer(); // для таблиц под RLS, если есть
+    const supabase = getSupabaseServer(); // с RLS
     const admin = getSupabaseAdmin();     // для storage
 
-    // 1) создаём запись в listings
+    // 1) создаём запись
     const { data: listingRows, error: insErr } = await supabase
       .from('listings')
       .insert({
-        owner_id: userId,       // важно: заполняем владельца
-        user_id: userId,        // если колонка есть — тоже заполним
+        owner_id: userId,
+        user_id: userId,
         status: 'draft',
 
         title,
@@ -130,6 +171,10 @@ export async function POST(req: Request) {
         security,
         lift,
 
+        utilities_included,
+        pets_allowed,
+        kids_allowed,
+
         tour_url,
       })
       .select('id')
@@ -145,7 +190,7 @@ export async function POST(req: Request) {
 
     const listingId = listingRows[0].id as string;
 
-    // 2) фото — загружаем в storage и пишем в listing_photos
+    // 2) фото → storage → listing_photos
     const photos = form.getAll('photos') as File[];
     const uploaded: { url: string; path: string }[] = [];
     for (const f of photos) {
@@ -175,7 +220,7 @@ export async function POST(req: Request) {
       if (photoErr) console.error('[listing_photos] insert', photoErr);
     }
 
-    // 3) 3D-тур — файл
+    // 3) 3D-тур (файл)
     const tourFile = form.get('tour_file') as File | null;
     if (tourFile && tourFile.size > 0) {
       const ext = (tourFile.name.split('.').pop() || 'bin').toLowerCase();
@@ -197,5 +242,3 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'server_error', message: e?.message ?? 'Internal' }, { status: 500 });
   }
 }
-
-
