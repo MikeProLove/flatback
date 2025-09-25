@@ -14,9 +14,9 @@ export async function GET() {
 
     const sb = getSupabaseAdmin();
 
-    // 1) заявки, где я владелец
+    // Заявки, где я владелец
     const { data: bookings, error: bErr } = await sb
-      .from('bookings')
+      .from('booking_requests')
       .select(
         'id,status,payment_status,start_date,end_date,monthly_price,deposit,created_at,listing_id,owner_id,tenant_id'
       )
@@ -28,18 +28,20 @@ export async function GET() {
     const rows = bookings ?? [];
     const listingIds = [...new Set(rows.map((r) => r.listing_id).filter(Boolean))] as string[];
 
-    // 2) базовая инфа по объявлениям
-    let listingMap = new Map<string, { title: string | null; city: string | null }>();
+    // Информация по объявлениям
+    const listingMap = new Map<string, { title: string | null; city: string | null }>();
     if (listingIds.length) {
       const { data: listings } = await sb
         .from('listings')
         .select('id,title,city')
         .in('id', listingIds);
-      (listings ?? []).forEach((l) => listingMap.set(l.id, { title: l.title ?? null, city: l.city ?? null }));
+      (listings ?? []).forEach((l) => {
+        listingMap.set(l.id, { title: l.title ?? null, city: l.city ?? null });
+      });
     }
 
-    // 3) обложки (первая фотка)
-    let coverMap = new Map<string, string>();
+    // Обложки (первая фотка)
+    const coverMap = new Map<string, string>();
     if (listingIds.length) {
       const { data: photos } = await sb
         .from('listing_photos')
@@ -54,12 +56,12 @@ export async function GET() {
 
     const out = rows.map((r) => ({
       ...r,
-      listing_title: listingMap.get(r.listing_id ?? '')?.title ?? null,
-      listing_city: listingMap.get(r.listing_id ?? '')?.city ?? null,
+      listing_title: r.listing_id ? listingMap.get(r.listing_id)?.title ?? null : null,
+      listing_city: r.listing_id ? listingMap.get(r.listing_id)?.city ?? null : null,
       cover_url: r.listing_id ? coverMap.get(r.listing_id) ?? null : null,
     }));
 
-    return NextResponse.json({ rows: out });
+    return NextResponse.json({ rows: out }, { headers: { 'Cache-Control': 'no-store' } });
   } catch (e: any) {
     console.error('[requests/incoming] GET', e);
     return NextResponse.json({ error: 'server_error', message: e?.message ?? 'Internal' }, { status: 500 });
