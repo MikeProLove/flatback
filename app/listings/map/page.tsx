@@ -23,6 +23,7 @@ export default function ListingsMapPage({
         <a href={`/listings?${new URLSearchParams(initial).toString()}`} className="text-sm underline">
           Список
         </a>
+        <a href="/listings/map" className="text-sm underline ml-3">Сбросить фильтры</a>
       </div>
 
       <SearchBar initial={initial} />
