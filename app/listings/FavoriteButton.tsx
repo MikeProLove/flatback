@@ -2,7 +2,10 @@
 import { useState } from 'react';
 import { SignedIn, SignedOut, SignInButton } from '@clerk/nextjs';
 
-export default function FavoriteButton({ listingId, initial = false }: { listingId: string; initial?: boolean }) {
+export default function FavoriteButton({
+  listingId,
+  initial = false,
+}: { listingId: string; initial?: boolean }) {
   const [on, setOn] = useState(!!initial);
   const [busy, setBusy] = useState(false);
 
@@ -19,24 +22,25 @@ export default function FavoriteButton({ listingId, initial = false }: { listing
       if (!res.ok) throw new Error(j?.message || res.statusText);
       setOn(!!j.favorited);
     } catch (e: any) {
-      alert(justString(e?.message) || 'Не удалось изменить избранное');
+      alert(e?.message || 'Не удалось изменить избранное');
     } finally {
       setBusy(false);
     }
   }
 
+  // Аккуратное "полное" сердечко, без перекосов
   const Heart = ({ filled }: { filled: boolean }) => (
     <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden>
       <path
-        d="M12 21s-6.7-4.3-9.4-7C.9 12.3.5 10.6.5 9.5.5 6.5 3 4 6 4c1.7 0 3.2.8 4.1 2.1C11.8 4.8 13.3 4 15 4c3 0 5.5 2.5 5.5 5.5 0 1.1-.4 2.8-2.1 4.5C18.7 16.7 12 21 12 21z"
+        d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 6 4 4 6.5 4c1.74 0 3.41 1.01 4.22 2.55C11.09 5.01 12.76 4 14.5 4 17 4 19 6 19 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"
         fill={filled ? 'currentColor' : 'none'}
         stroke="currentColor"
-        strokeWidth="1.6"
+        strokeWidth="1.2"
       />
     </svg>
   );
 
-  const Btn = ({ children, onClick }: any) => (
+  const Circle = ({ children, onClick }: any) => (
     <button
       type="button"
       onClick={onClick}
@@ -46,7 +50,7 @@ export default function FavoriteButton({ listingId, initial = false }: { listing
       aria-label={on ? 'Убрать из избранного' : 'В избранное'}
       title={on ? 'Убрать из избранного' : 'В избранное'}
     >
-      {children}
+      <span className={on ? 'text-red-500' : 'text-gray-700'}>{children}</span>
     </button>
   );
 
@@ -54,23 +58,12 @@ export default function FavoriteButton({ listingId, initial = false }: { listing
     <div className="relative z-10">
       <SignedOut>
         <SignInButton mode="modal">
-          <Btn>
-            <Heart filled={false} />
-          </Btn>
+          <Circle><Heart filled={false} /></Circle>
         </SignInButton>
       </SignedOut>
-
       <SignedIn>
-        <Btn onClick={toggle}>
-          <span className={on ? 'text-red-500' : 'text-gray-700'}>
-            <Heart filled={on} />
-          </span>
-        </Btn>
+        <Circle onClick={toggle}><Heart filled={on} /></Circle>
       </SignedIn>
     </div>
   );
-}
-
-function justString(v: unknown) {
-  return typeof v === 'string' ? v : '';
 }
