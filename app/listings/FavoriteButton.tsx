@@ -1,15 +1,8 @@
 'use client';
-
 import { useState } from 'react';
 import { SignedIn, SignedOut, SignInButton } from '@clerk/nextjs';
 
-export default function FavoriteButton({
-  listingId,
-  initial = false,
-}: {
-  listingId: string;
-  initial?: boolean;
-}) {
+export default function FavoriteButton({ listingId, initial = false }: { listingId: string; initial?: boolean }) {
   const [on, setOn] = useState(!!initial);
   const [busy, setBusy] = useState(false);
 
@@ -18,15 +11,15 @@ export default function FavoriteButton({
     setBusy(true);
     try {
       const res = await fetch('/api/favorites', {
-        method: 'PATCH', // совместимо и с POST — см. API
+        method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ listing_id: listingId }),
       });
       const j = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(j?.message || res.statusText);
       setOn(!!j.favorited);
-    } catch {
-      alert('Не удалось изменить избранное');
+    } catch (e: any) {
+      alert(justString(e?.message) || 'Не удалось изменить избранное');
     } finally {
       setBusy(false);
     }
@@ -43,7 +36,7 @@ export default function FavoriteButton({
     </svg>
   );
 
-  const Circle = ({ children, onClick }: any) => (
+  const Btn = ({ children, onClick }: any) => (
     <button
       type="button"
       onClick={onClick}
@@ -61,19 +54,23 @@ export default function FavoriteButton({
     <div className="relative z-10">
       <SignedOut>
         <SignInButton mode="modal">
-          <Circle>
+          <Btn>
             <Heart filled={false} />
-          </Circle>
+          </Btn>
         </SignInButton>
       </SignedOut>
 
       <SignedIn>
-        <Circle onClick={toggle}>
+        <Btn onClick={toggle}>
           <span className={on ? 'text-red-500' : 'text-gray-700'}>
             <Heart filled={on} />
           </span>
-        </Circle>
+        </Btn>
       </SignedIn>
     </div>
   );
+}
+
+function justString(v: unknown) {
+  return typeof v === 'string' ? v : '';
 }
