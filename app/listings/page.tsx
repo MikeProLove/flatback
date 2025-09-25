@@ -4,6 +4,8 @@ import { getSupabaseAdmin } from '@/lib/supabase-admin';
 import { money } from '@/lib/format';
 import SearchBar from './SearchBar';
 import SaveSearchButton from './SaveSearchButton';
+import FavoriteButton from './FavoriteButton';
+import { auth } from '@clerk/nextjs/server';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -36,13 +38,11 @@ const sanitizeLike = (s: string) => s.replace(/[%_]/g, '\\$&').replace(/,/g, ' '
 async function getData(sp: SP) {
   const sb = getSupabaseAdmin();
 
-  // пагинация
   const page = Math.max(1, Number(take(sp, 'page')) || 1);
   const per = 24;
   const from = (page - 1) * per;
   const to = from + per - 1;
 
-  // базовый запрос (только опубликованные)
   let q = sb
     .from('listings_with_cover')
     .select(
@@ -51,7 +51,6 @@ async function getData(sp: SP) {
     )
     .eq('status', 'published');
 
-  // строка поиска по нескольким полям
   const qraw = (take(sp, 'q') || '').trim();
   if (qraw) {
     const pat = `%${sanitizeLike(qraw)}%`;
@@ -64,7 +63,6 @@ async function getData(sp: SP) {
     q = q.or(or);
   }
 
-  // точные/диапазонные фильтры
   const city = (take(sp, 'city') || '').trim();
   if (city) q = q.ilike('city', `%${sanitizeLike(city)}%`);
 
@@ -84,21 +82,18 @@ async function getData(sp: SP) {
   const withPhotos = take(sp, 'with_photos') === '1';
   if (withPhotos) q = q.not('cover_url', 'is', null);
 
-  // сортировка
   const sort = take(sp, 'sort') || 'latest';
   if (sort === 'price_asc') {
     q = q.order('price', { ascending: true, nullsFirst: true });
   } else if (sort === 'price_desc') {
-    q = q.order('price', { ascending: false, nullsFirst: false }); // nullsLast недоступен в типах
+    q = q.order('price', { ascending: false, nullsFirst: false });
   } else if (sort === 'area_desc') {
     q = q.order('area_total', { ascending: false, nullsFirst: false });
   } else {
     q = q.order('created_at', { ascending: false });
   }
 
-  // диапазон
   const { data, count } = await q.range(from, to);
-
   const listings = (data ?? []) as ListingRow[];
 
   // Fallback для карточек без cover_url
@@ -123,34 +118,36 @@ async function getData(sp: SP) {
   const hasNext = from + listings.length < total;
   const hasPrev = page > 1;
 
-  return { listings, fallback, page, hasPrev, hasNext };
+  return { listings, fallback, page, hasPrev, hasNext, total, per };
 }
 
 export default async function ListingsPage({ searchParams }: { searchParams: SP }) {
   const { listings, fallback, page, hasPrev, hasNext } = await getData(searchParams);
 
-  // значения фильтров для формы и ссылок
+  // auth для начального состояния избранного
+  const { userId } = auth();
+  const sb = getSupabaseAdmin();
+  const favSet = new Set<string>();
+  if (userId && listings.length) {
+    const ids = listings.map((l) => l.id);
+    const { data: favs } = await sb
+      .from('favorites')
+      .select('listing_id')
+      .eq('user_id', userId)
+      .in('listing_id', ids);
+    (favs ?? []).forEach((f) => favSet.add(f.listing_id));
+  }
+
   const initial: Record<string, string> = {};
   for (const k of [
-    'q',
-    'city',
-    'rooms',
-    'price_min',
-    'price_max',
-    'area_min',
-    'area_max',
-    'sort',
-    'with_photos',
+    'q','city','rooms','price_min','price_max','area_min','area_max','sort','with_photos',
   ]) {
     const v = take(searchParams, k);
     if (typeof v === 'string') initial[k] = v;
   }
-
-  // ссылки "Список/Карта" с текущими query-параметрами
   const qsNow = new URLSearchParams(initial).toString();
   const mapHref = qsNow ? `/listings/map?${qsNow}` : '/listings/map';
 
-  // Навигация страниц
   const pageURL = (p: number) => {
     const params = new URLSearchParams(initial);
     params.set('page', String(p));
@@ -161,8 +158,6 @@ export default async function ListingsPage({ searchParams }: { searchParams: SP 
     <div className="mx-auto max-w-6xl px-4 py-10 space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">Объявления</h1>
-
-        {/* ← БЛОК «Просмотр: Список · Карта» + кнопка «Сохранить поиск» */}
         <div className="flex items-center gap-4">
           <div className="text-sm text-muted-foreground">
             Просмотр: <a href="/listings" className="underline">Список</a> ·{' '}
@@ -177,36 +172,37 @@ export default async function ListingsPage({ searchParams }: { searchParams: SP 
       {listings.length === 0 ? (
         <div className="rounded-2xl border p-6 text-sm text-muted-foreground">
           Ничего не найдено. Попробуйте изменить фильтры или{' '}
-          <a href="/listings" className="underline">
-            сбросить поиск
-          </a>
-          .
+          <a href="/listings" className="underline">сбросить поиск</a>.
         </div>
       ) : (
         <>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {listings.map((l) => {
               const cover = l.cover_url || fallback.get(l.id);
+              const fav = favSet.has(l.id);
               return (
-                <a
-                  key={l.id}
-                  href={`/listings/${l.id}`}
-                  className="rounded-2xl border hover:shadow transition overflow-hidden"
-                >
-                  <div className="aspect-[4/3] bg-muted">
-                    {cover ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={cover} alt="" className="w-full h-full object-cover" loading="lazy" />
-                    ) : null}
+                <div key={l.id} className="rounded-2xl border hover:shadow transition overflow-hidden relative">
+                  {/* Сердечко в углу */}
+                  <div className="absolute top-2 right-2 z-10">
+                    <FavoriteButton listingId={l.id} initial={fav} />
                   </div>
-                  <div className="p-4 space-y-2">
-                    <div className="text-lg font-semibold">{l.title ?? 'Объявление'}</div>
-                    <div className="text-sm text-muted-foreground">
-                      {l.city ?? '—'} · {l.rooms ?? '—'}к · {l.area_total ?? '—'} м²
+
+                  <a href={`/listings/${l.id}`}>
+                    <div className="aspect-[4/3] bg-muted">
+                      {cover ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={cover} alt="" className="w-full h-full object-cover" loading="lazy" />
+                      ) : null}
                     </div>
-                    <div className="text-base font-semibold">{money(Number(l.price) || 0)}</div>
-                  </div>
-                </a>
+                    <div className="p-4 space-y-2">
+                      <div className="text-lg font-semibold">{l.title ?? 'Объявление'}</div>
+                      <div className="text-sm text-muted-foreground">
+                        {l.city ?? '—'} · {l.rooms ?? '—'}к · {l.area_total ?? '—'} м²
+                      </div>
+                      <div className="text-base font-semibold">{money(Number(l.price) || 0)}</div>
+                    </div>
+                  </a>
+                </div>
               );
             })}
           </div>
