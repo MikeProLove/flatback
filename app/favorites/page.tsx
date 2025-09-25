@@ -1,47 +1,68 @@
-// app/favorites/page.tsx
+export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
-import { money } from '@/lib/format';
+import { NextResponse } from 'next/server';
+import { auth } from '@clerk/nextjs/server';
+import { getSupabaseAdmin } from '@/lib/supabase-admin';
 
-async function getData() {
-  const res = await fetch('/api/favorites/my', { cache: 'no-store' }).catch(() => null);
-  if (!res || !res.ok) return { rows: [] as any[] };
-  const j = await res.json();
-  return { rows: (j.rows ?? []) as any[] };
+function parseBody = async (req: Request) => {
+  try {
+    const ct = req.headers.get('content-type') || '';
+    if (ct.includes('application/json')) {
+      const j = await req.json();
+      return String(j?.listing_id || '').trim();
+    } else {
+      const fd = await req.formData();
+      return String(fd.get('listing_id') || '').trim();
+    }
+  } catch {
+    return '';
+  }
+};
+
+export async function PATCH(req: Request) {
+  try {
+    const { userId } = auth();
+    if (!userId) return NextResponse.json({ error: 'unauthorized', message: 'not signed in' }, { status: 401 });
+
+    const listing_id = await parseBody(req);
+    if (!listing_id) return NextResponse.json({ error: 'bad_request', message: 'listing_id is required' }, { status: 400 });
+
+    const sb = getSupabaseAdmin();
+
+    const { data: found, error: selErr } = await sb
+      .from('favorites')
+      .select('id')
+      .eq('user_id', userId)
+      .eq('listing_id', listing_id)
+      .maybeSingle();
+
+    if (selErr) {
+      return NextResponse.json({ error: 'db_select', message: selErr.message }, { status: 500 });
+    }
+
+    if (found) {
+      const { error: delErr } = await sb.from('favorites').delete().eq('id', found.id).eq('user_id', userId);
+      if (delErr) {
+        return NextResponse.json({ error: 'db_delete', message: delErr.message }, { status: 500 });
+      }
+      return NextResponse.json({ ok: true, favorited: false });
+    } else {
+      const { error: insErr } = await sb.from('favorites').insert({ user_id: userId, listing_id });
+      if (insErr) {
+        // гонка по уникальному индексу — считаем "уже в избранном"
+        if ((insErr as any).code === '23505') return NextResponse.json({ ok: true, favorited: true });
+        return NextResponse.json({ error: 'db_insert', message: insErr.message }, { status: 500 });
+      }
+      return NextResponse.json({ ok: true, favorited: true });
+    }
+  } catch (e: any) {
+    return NextResponse.json({ error: 'server_error', message: e?.message ?? 'Internal' }, { status: 500 });
+  }
 }
 
-export default async function FavoritesPage() {
-  const { rows } = await getData();
-
-  return (
-    <div className="mx-auto max-w-6xl px-4 py-10 space-y-6">
-      <h1 className="text-2xl font-semibold">Избранное</h1>
-
-      {rows.length === 0 ? (
-        <div className="rounded-2xl border p-6 text-sm text-muted-foreground">
-          Список пуст. Откройте <a className="underline" href="/listings">объявления</a> и добавьте некоторые в избранное.
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {rows.map((l) => (
-            <a key={l.id} href={`/listings/${l.id}`} className="rounded-2xl border hover:shadow transition overflow-hidden">
-              <div className="aspect-[4/3] bg-muted">
-                {l.cover_url ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={l.cover_url} alt="" className="w-full h-full object-cover" loading="lazy" />
-                ) : null}
-              </div>
-              <div className="p-4 space-y-2">
-                <div className="text-lg font-semibold">{l.title ?? 'Объявление'}</div>
-                <div className="text-sm text-muted-foreground">
-                  {l.city ?? '—'} · {l.rooms ?? '—'}к · {l.area_total ?? '—'} м²
-                </div>
-                <div className="text-base font-semibold">{money(Number(l.price) || 0)}</div>
-              </div>
-            </a>
-          ))}
-        </div>
-      )}
-    </div>
-  );
+// на всякий — поддержим POST тоже
+export async function POST(req: Request) {
+  return PATCH(req);
 }
