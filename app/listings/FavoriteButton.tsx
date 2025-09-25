@@ -1,43 +1,41 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { SignedIn, SignedOut, SignInButton } from '@clerk/nextjs';
 
-export default function FavoriteButton({ listingId }: { listingId: string }) {
-  const [fav, setFav] = useState<boolean | null>(null);
+export default function FavoriteButton({
+  listingId,
+  initial = false,
+}: {
+  listingId: string;
+  initial?: boolean;
+}) {
+  const [on, setOn] = useState<boolean>(!!initial);
   const [busy, setBusy] = useState(false);
 
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      try {
-        const res = await fetch(`/api/favorites/${listingId}`, { cache: 'no-store' });
-        const j = await res.json();
-        if (alive) setFav(Boolean(j.isFavorite));
-      } catch {
-        if (alive) setFav(false);
-      }
-    })();
-    return () => { alive = false; };
-  }, [listingId]);
-
   const toggle = async () => {
-    if (fav === null || busy) return;
+    if (busy) return;
     setBusy(true);
     try {
-      const method = fav ? 'DELETE' : 'POST';
-      const res = await fetch(`/api/favorites/${listingId}`, { method });
-      if (res.ok) setFav(!fav);
+      const res = await fetch('/api/favorites', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ listing_id: listingId }),
+      });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j?.message || 'Ошибка');
+      setOn(!!j.favorited);
+    } catch (e) {
+      alert('Не удалось изменить избранное');
     } finally {
       setBusy(false);
     }
   };
 
-  // простая иконка сердечка SVG
   const Heart = ({ filled }: { filled: boolean }) => (
-    <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">
+    <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden>
       <path
-        d="M12 21s-6.716-4.35-9.428-7.06C.86 12.23.5 10.26 1.4 8.7 2.44 6.89 4.78 6.17 6.7 7.05 8.06 7.68 9 8.9 12 11.5c3-2.6 3.94-3.82 5.3-4.45 1.92-.88 4.26-.16 5.3 1.65.9 1.56.54 3.53-1.17 5.24C18.716 16.65 12 21 12 21z"
+        d="M12 21s-6.716-4.297-9.428-7.009C.86 12.28.5 10.6.5 9.5.5 6.462 2.962 4 6 4c1.657 0 3.156.81 4.1 2.05C11.844 4.81 13.343 4 15 4c3.038 0 5.5 2.462 5.5 5.5 0 1.1-.36 2.78-2.072 4.491C18.716 16.703 12 21 12 21z"
         fill={filled ? 'currentColor' : 'none'}
         stroke="currentColor"
         strokeWidth="1.5"
@@ -50,8 +48,10 @@ export default function FavoriteButton({ listingId }: { listingId: string }) {
       <SignedOut>
         <SignInButton mode="modal">
           <button
+            type="button"
+            className="p-2 rounded-full bg-white/90 border shadow hover:shadow-md"
             aria-label="В избранное"
-            className="absolute top-2 right-2 rounded-full bg-white/85 hover:bg-white p-1 shadow"
+            title="В избранное"
           >
             <Heart filled={false} />
           </button>
@@ -60,12 +60,14 @@ export default function FavoriteButton({ listingId }: { listingId: string }) {
 
       <SignedIn>
         <button
+          type="button"
           onClick={toggle}
-          disabled={fav === null || busy}
-          aria-label={fav ? 'Убрать из избранного' : 'В избранное'}
-          className="absolute top-2 right-2 rounded-full bg-white/85 hover:bg-white p-1 shadow"
+          disabled={busy}
+          className="p-2 rounded-full bg-white/90 border shadow hover:shadow-md"
+          aria-label={on ? 'Убрать из избранного' : 'В избранное'}
+          title={on ? 'Убрать из избранного' : 'В избранное'}
         >
-          <Heart filled={!!fav} />
+          <Heart filled={on} />
         </button>
       </SignedIn>
     </div>
