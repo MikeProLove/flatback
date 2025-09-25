@@ -1,81 +1,46 @@
 // app/listings/page.tsx
-import React from 'react';
+export const dynamic = 'force-dynamic';
+
 import { getSupabaseAdmin } from '@/lib/supabase-admin';
-import { auth } from '@clerk/nextjs/server';
 import { money } from '@/lib/format';
-import SearchBar from './SearchBar';
-import SaveSearchButton from './SaveSearchButton';
 import FavoriteButton from './FavoriteButton';
 import { auth } from '@clerk/nextjs/server';
 
-export const runtime = 'nodejs';
-export const dynamic = 'force-dynamic';
-@@ -25,14 +25,8 @@ type ListingRow = {
+type ListingRow = {
+  id: string;
+  owner_id: string | null;
+  user_id: string | null;
+  title: string | null;
+  price: number | null;
+  city: string | null;
+  rooms: number | null;
+  area_total: number | null;
+  cover_url: string | null;
+  created_at: string;
+  status: string;
 };
 
-type SP = Record<string, string | string[] | undefined>;
+async function getData() {
+  const sb = getSupabaseAdmin();
+  const { userId } = auth();
 
-const num = (v?: string) => {
-  if (!v) return null;
-  const n = Number(v);
-  return Number.isFinite(n) ? n : null;
-};
-const take = (sp: SP, key: string) =>
-  typeof sp[key] === 'string' ? (sp[key] as string) : undefined;
-const take = (sp: SP, key: string) => (typeof sp[key] === 'string' ? (sp[key] as string) : undefined);
-const num = (v?: string) => (v && Number.isFinite(+v) ? +v : null);
-const sanitizeLike = (s: string) => s.replace(/[%_]/g, '\\$&').replace(/,/g, ' ');
-
-async function getData(sp: SP) {
-@@ -45,22 +39,18 @@ async function getData(sp: SP) {
-
-  let q = sb
+  // 1) берём опубликованные лоты + cover из вьюхи
+  const { data, error } = await sb
     .from('listings_with_cover')
     .select(
-      'id,title,price,city,rooms,area_total,cover_url,created_at,status,owner_id,user_id',
-      { count: 'exact' }
+      'id,title,price,city,rooms,area_total,cover_url,created_at,status,owner_id,user_id'
     )
-    .select('id,title,price,city,rooms,area_total,cover_url,created_at,status,owner_id,user_id', { count: 'exact' })
-    .eq('status', 'published');
+    .eq('status', 'published')
+    .order('created_at', { ascending: false })
+    .limit(24);
 
-  const qraw = (take(sp, 'q') || '').trim();
-  if (qraw) {
-    const pat = `%${sanitizeLike(qraw)}%`;
-    const or = [
-    q = q.or([
-      `title.ilike.${pat}`,
-      `city.ilike.${pat}`,
-      `address.ilike.${pat}`,
-      `description.ilike.${pat}`,
-    ].join(',');
-    q = q.or(or);
-    ].join(','));
+  if (error) {
+    return { listings: [] as ListingRow[], fallback: new Map<string, string>(), favSet: new Set<string>(), err: error.message };
   }
 
-  const city = (take(sp, 'city') || '').trim();
-@@ -83,65 +73,55 @@ async function getData(sp: SP) {
-  if (withPhotos) q = q.not('cover_url', 'is', null);
-
-  const sort = take(sp, 'sort') || 'latest';
-  if (sort === 'price_asc') {
-    q = q.order('price', { ascending: true, nullsFirst: true });
-  } else if (sort === 'price_desc') {
-    q = q.order('price', { ascending: false, nullsFirst: false });
-  } else if (sort === 'area_desc') {
-    q = q.order('area_total', { ascending: false, nullsFirst: false });
-  } else {
-    q = q.order('created_at', { ascending: false });
-  }
-  if (sort === 'price_asc') q = q.order('price', { ascending: true, nullsFirst: true });
-  else if (sort === 'price_desc') q = q.order('price', { ascending: false, nullsFirst: false });
-  else if (sort === 'area_desc') q = q.order('area_total', { ascending: false, nullsFirst: false });
-  else q = q.order('created_at', { ascending: false });
-
-  const { data, count } = await q.range(from, to);
   const listings = (data ?? []) as ListingRow[];
 
-  // Fallback для карточек без cover_url
-  // fallback для cover
+  // 2) фолбэк: если cover_url нет — берём первую фотку из storage
   const fallback = new Map<string, string>();
   const tasks = listings
     .filter((l) => !l.cover_url)
@@ -86,100 +51,88 @@ async function getData(sp: SP) {
       const list = await sb.storage.from('listings').list(prefix, { limit: 1 });
       const first = list?.data?.[0];
       if (first) {
-        const fullPath = `${prefix}/${first.name}`;
-        const pub = sb.storage.from('listings').getPublicUrl(fullPath);
-        fallback.set(l.id, pub.data.publicUrl);
+        const url = sb.storage.from('listings').getPublicUrl(`${prefix}/${first.name}`).data.publicUrl;
+        fallback.set(l.id, url);
       }
     });
-  const tasks = listings.filter(l => !l.cover_url).map(async (l) => {
-    const owner = l.owner_id || l.user_id;
-    if (!owner) return;
-    const prefix = `${owner}/${l.id}`;
-    const list = await sb.storage.from('listings').list(prefix, { limit: 1 });
-    const first = list?.data?.[0];
-    if (first) {
-      const fullPath = `${prefix}/${first.name}`;
-      const pub = sb.storage.from('listings').getPublicUrl(fullPath);
-      fallback.set(l.id, pub.data.publicUrl);
-    }
-  });
   await Promise.all(tasks);
 
-  const total = count ?? listings.length;
-  const hasNext = from + listings.length < total;
-  const hasPrev = page > 1;
-
-  return { listings, fallback, page, hasPrev, hasNext, total, per };
-}
-
-export default async function ListingsPage({ searchParams }: { searchParams: SP }) {
-  const { listings, fallback, page, hasPrev, hasNext } = await getData(searchParams);
-
-  // auth для начального состояния избранного
-  // избранное начальное
-  const { userId } = auth();
-  const sb = getSupabaseAdmin();
+  // 3) избранное текущего пользователя (для начального состояния сердечек)
   const favSet = new Set<string>();
   if (userId && listings.length) {
     const ids = listings.map((l) => l.id);
-    const ids = listings.map(l => l.id);
     const { data: favs } = await sb
       .from('favorites')
       .select('listing_id')
       .eq('user_id', userId)
       .in('listing_id', ids);
-    (favs ?? []).forEach((f) => favSet.add(f.listing_id));
-    (favs ?? []).forEach(f => favSet.add(f.listing_id));
+    (favs ?? []).forEach((f) => favSet.add(String(f.listing_id)));
   }
 
-  const total = count ?? listings.length;
-  const hasPrev = page > 1;
-  const hasNext = from + listings.length < total;
-
-  return { listings, fallback, favSet, page, hasPrev, hasNext, total, per };
+  return { listings, fallback, favSet, err: null as string | null };
 }
 
-export default async function ListingsPage({ searchParams }: { searchParams: SP }) {
-  const { listings, fallback, favSet, page, hasPrev, hasNext } = await getData(searchParams);
+export default async function ListingsPage() {
+  const { listings, fallback, favSet, err } = await getData();
 
-  const initial: Record<string, string> = {};
-  for (const k of [
-    'q','city','rooms','price_min','price_max','area_min','area_max','sort','with_photos',
-  ]) {
-  for (const k of ['q','city','rooms','price_min','price_max','area_min','area_max','sort','with_photos']) {
-    const v = take(searchParams, k);
-    if (typeof v === 'string') initial[k] = v;
-  }
-@@ -182,8 +162,8 @@ export default async function ListingsPage({ searchParams }: { searchParams: SP
-              const fav = favSet.has(l.id);
-              return (
-                <div key={l.id} className="rounded-2xl border hover:shadow transition overflow-hidden relative">
-                  {/* Сердечко в углу */}
-                  <div className="absolute top-2 right-2 z-10">
-                  {/* Сердечко вне <a>, поверх карточки */}
-                  <div className="absolute top-2 right-2 z-10 pointer-events-auto">
-                    <FavoriteButton listingId={l.id} initial={fav} />
+  return (
+    <div className="mx-auto max-w-6xl px-4 py-10 space-y-6">
+      <h1 className="text-2xl font-semibold">Объявления</h1>
+
+      {err ? (
+        <div className="rounded-2xl border p-6 text-sm text-red-600">
+          Ошибка загрузки: {err}
+        </div>
+      ) : listings.length === 0 ? (
+        <div className="rounded-2xl border p-6 text-sm text-muted-foreground">
+          Пока нет объявлений. <a href="/listings/create" className="underline">Создайте первое</a>.
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {listings.map((l) => {
+            const cover = l.cover_url || fallback.get(l.id) || null;
+            const isFav = favSet.has(l.id);
+
+            return (
+              <div
+                key={l.id}
+                className="rounded-2xl border hover:shadow transition overflow-hidden relative"
+              >
+                {/* Избранное */}
+                <div className="absolute top-2 right-2 z-10">
+                  <FavoriteButton listingId={l.id} initial={isFav} />
+                </div>
+
+                <a href={`/listings/${l.id}`}>
+                  <div className="aspect-[4/3] bg-muted">
+                    {cover ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={cover}
+                        alt=""
+                        className="w-full h-full object-cover"
+                        loading="lazy"
+                      />
+                    ) : null}
                   </div>
 
-@@ -207,19 +187,10 @@ export default async function ListingsPage({ searchParams }: { searchParams: SP
-            })}
-          </div>
-
-          {/* Пагинация */}
-          <div className="flex items-center justify-center gap-3 pt-4">
-            {hasPrev ? (
-              <a href={pageURL(page - 1)} className="px-3 py-1 border rounded-md text-sm">
-                Назад
-              </a>
-            ) : null}
-            {hasPrev ? <a href={pageURL(page - 1)} className="px-3 py-1 border rounded-md text-sm">Назад</a> : null}
-            <div className="text-sm text-muted-foreground">Стр. {page}</div>
-            {hasNext ? (
-              <a href={pageURL(page + 1)} className="px-3 py-1 border rounded-md text-sm">
-                Вперёд
-              </a>
-            ) : null}
-            {hasNext ? <a href={pageURL(page + 1)} className="px-3 py-1 border rounded-md text-sm">Вперёд</a> : null}
-          </div>
-        </>
+                  <div className="p-4 space-y-2">
+                    <div className="text-lg font-semibold">
+                      {l.title ?? 'Объявление'}
+                    </div>
+                    <div className="text-sm text-muted-foreground">
+                      {l.city ?? '—'} · {l.rooms ?? '—'}к · {l.area_total ?? '—'} м²
+                    </div>
+                    <div className="text-base font-semibold">
+                      {money(Number(l.price) || 0)}
+                    </div>
+                  </div>
+                </a>
+              </div>
+            );
+          })}
+        </div>
       )}
+    </div>
+  );
+}
