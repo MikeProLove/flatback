@@ -7,7 +7,6 @@ import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { getSupabaseAdmin } from '@/lib/supabase-admin';
 
-// toggle: если в избранном — удалим, если нет — добавим
 export async function PATCH(req: Request) {
   try {
     const { userId } = auth();
@@ -19,6 +18,7 @@ export async function PATCH(req: Request) {
 
     const sb = getSupabaseAdmin();
 
+    // есть запись?
     const { data: found, error: selErr } = await sb
       .from('favorites')
       .select('id')
@@ -26,7 +26,10 @@ export async function PATCH(req: Request) {
       .eq('listing_id', listing_id)
       .maybeSingle();
 
-    if (selErr) return NextResponse.json({ error: 'db', message: selErr.message }, { status: 500 });
+    if (selErr) {
+      console.error('[favorites] select', selErr);
+      return NextResponse.json({ error: 'db', message: selErr.message }, { status: 500 });
+    }
 
     if (found) {
       const { error: delErr } = await sb
@@ -34,13 +37,23 @@ export async function PATCH(req: Request) {
         .delete()
         .eq('id', found.id)
         .eq('user_id', userId);
-      if (delErr) return NextResponse.json({ error: 'db', message: delErr.message }, { status: 500 });
+      if (delErr) {
+        console.error('[favorites] delete', delErr);
+        return NextResponse.json({ error: 'db', message: delErr.message }, { status: 500 });
+      }
       return NextResponse.json({ ok: true, favorited: false });
     } else {
       const { error: insErr } = await sb
         .from('favorites')
         .insert({ user_id: userId, listing_id });
-      if (insErr) return NextResponse.json({ error: 'db', message: insErr.message }, { status: 500 });
+      if (insErr) {
+        // если кто-то успел вставить параллельно — считаем «в избранном»
+        if (insErr.code === '23505') {
+          return NextResponse.json({ ok: true, favorited: true });
+        }
+        console.error('[favorites] insert', insErr);
+        return NextResponse.json({ error: 'db', message: insErr.message }, { status: 500 });
+      }
       return NextResponse.json({ ok: true, favorited: true });
     }
   } catch (e: any) {
