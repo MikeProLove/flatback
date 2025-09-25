@@ -41,10 +41,9 @@ async function getData(search: string) {
   const sp = new URLSearchParams(search);
   const sb = getSupabaseAdmin();
 
-  // --------- входные параметры ----------
-  const q = take(sp, 'q');                         // текстовый поиск
-  const city = take(sp, 'city');                   // город
-  const rooms = int(take(sp, 'rooms'));            // кол-во комнат
+  const q = take(sp, 'q');
+  const city = take(sp, 'city');
+  const rooms = int(take(sp, 'rooms'));
   const pmin = int(take(sp, 'price_min'));
   const pmax = int(take(sp, 'price_max'));
   const amin = int(take(sp, 'area_min'));
@@ -57,7 +56,6 @@ async function getData(search: string) {
   const from = (page - 1) * perPage;
   const to = from + perPage - 1;
 
-  // --------- основной запрос ----------
   let query = sb
     .from('listings_with_cover')
     .select('id,title,price,city,rooms,area_total,cover_url,created_at,owner_id,user_id', { count: 'exact', head: false })
@@ -71,10 +69,7 @@ async function getData(search: string) {
   if (amax !== null) query = query.lte('area_total', amax);
   if (onlyPhotos) query = query.not('cover_url', 'is', null);
 
-  // текстовый поиск — ищем по нескольким полям
   if (q && q.length >= 2) {
-    // or-секция PostgREST: поле.оператор.значение
-    // экранировать % не нужно, мы их явно ставим
     query = query.or(
       [
         `title.ilike.%${q}%`,
@@ -85,13 +80,11 @@ async function getData(search: string) {
     );
   }
 
-  // сортировка
   if (sort === 'price_asc') query = query.order('price', { ascending: true, nullsFirst: true });
   else if (sort === 'price_desc') query = query.order('price', { ascending: false });
   else if (sort === 'area_desc') query = query.order('area_total', { ascending: false });
   else query = query.order('created_at', { ascending: false });
 
-  // пагинация
   query = query.range(from, to);
 
   const { data, count, error } = await query;
@@ -103,11 +96,19 @@ async function getData(search: string) {
   return { rows, count: count ?? 0, page, perPage, sp, error: null as string | null };
 }
 
-export default async function ListingsPage({ searchParams }: { searchParams: Record<string, string | undefined> }) {
-  // восстанавливаем строку запроса
-  const search = new URLSearchParams(Object.fromEntries(Object.entries(searchParams).filter(([_, v]) => v !== undefined))).toString();
-  const { rows, count, page, perPage, sp, error } = await getData(`?${search}`);
+export default async function ListingsPage({
+  searchParams,
+}: {
+  searchParams: Record<string, string | undefined>;
+}) {
+  // ✅ TS-safe сборка строки запроса
+  const spObj: Record<string, string> = {};
+  for (const [k, v] of Object.entries(searchParams)) {
+    if (typeof v === 'string') spObj[k] = v;
+  }
+  const search = new URLSearchParams(spObj).toString();
 
+  const { rows, count, page, perPage, sp, error } = await getData(`?${search}`);
   const totalPages = Math.max(1, Math.ceil(count / perPage));
 
   return (
@@ -120,7 +121,7 @@ export default async function ListingsPage({ searchParams }: { searchParams: Rec
         </div>
       </div>
 
-      {/* панель фильтров у тебя уже есть — не трогаю */}
+      {/* панель фильтров — как у тебя */}
 
       {error ? (
         <div className="rounded-2xl border p-6 text-sm text-red-600">Ошибка: {error}</div>
