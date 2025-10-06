@@ -24,8 +24,14 @@ type Row = {
 function money(n?: number | null) {
   const v = Number(n ?? 0);
   try {
-    return new Intl.NumberFormat('ru-RU',{style:'currency',currency:'RUB',maximumFractionDigits:0}).format(v);
-  } catch { return `${Math.round(v)} ₽`; }
+    return new Intl.NumberFormat('ru-RU', {
+      style: 'currency',
+      currency: 'RUB',
+      maximumFractionDigits: 0,
+    }).format(v);
+  } catch {
+    return `${Math.round(v)} ₽`;
+  }
 }
 
 export default async function MyListingsPage() {
@@ -34,21 +40,23 @@ export default async function MyListingsPage() {
 
   const sb = getSupabaseAdmin();
 
-  // 1) пробуем вьюху с cover_url
+  // 1) Берём объявления пользователя из вьюхи с cover_url
   const { data } = await sb
     .from('listings_with_cover')
-    .select('id,title,status,price,city,rooms,area_total,cover_url,owner_id,user_id,created_at')
+    .select(
+      'id,title,status,price,city,rooms,area_total,cover_url,owner_id,user_id,created_at'
+    )
     .or(`owner_id.eq.${userId},user_id.eq.${userId}`)
     .order('created_at', { ascending: false });
 
   const rows = (data ?? []) as Row[];
 
-  // 2) фоллбэк — достанем 1-ю фотку из storage для тех, у кого cover пустой
-  const fallback = new Map<string,string>();
+  // 2) Fallback: если cover_url пуст, достаём первую фотку из storage
+  const fallback = new Map<string, string>();
   await Promise.all(
     rows
-      .filter(r => !r.cover_url)
-      .map(async r => {
+      .filter((r) => !r.cover_url)
+      .map(async (r) => {
         const owner = r.owner_id || r.user_id;
         if (!owner) return;
         const prefix = `${owner}/${r.id}`;
@@ -72,7 +80,7 @@ export default async function MyListingsPage() {
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {rows.map(r => {
+          {rows.map((r) => {
             const cover = r.cover_url || fallback.get(r.id) || '';
             return (
               <div key={r.id} className="rounded-2xl border overflow-hidden">
@@ -84,7 +92,8 @@ export default async function MyListingsPage() {
                     ) : null}
                   </div>
                 </a>
-                <div className="p-4 space-y-1">
+
+                <div className="p-4 space-y-2">
                   <div className="text-base font-semibold">{r.title ?? 'Объявление'}</div>
                   <div className="text-sm text-muted-foreground">
                     {r.city ?? '—'} · {r.rooms ?? '—'}к · {r.area_total ?? '—'} м²
@@ -94,26 +103,27 @@ export default async function MyListingsPage() {
                   <div className="pt-2 flex items-center justify-between">
                     <div className="text-xs">
                       Статус:{' '}
-                      <span className={r.status === 'published' ? 'text-green-600' : 'text-yellow-700'}>
+                      <span
+                        className={
+                          r.status === 'published' ? 'text-green-600' : 'text-yellow-700'
+                        }
+                      >
                         {r.status}
                       </span>
                     </div>
-                  <div className="flex gap-2">
-                    {l.status === 'published' ? (
-                      <button ...>Снять с публикации</button>
-                    ) : (
-                      <button ...>Опубликовать</button>
-                    )}
-                  
-                    {/* ← ДОБАВЬ ЭТУ ССЫЛКУ */}
-                    <Link
-                      href={`/listings/${l.id}/edit`}
-                      className="px-3 py-1 border rounded-md text-sm hover:bg-muted"
-                    >
-                      Редактировать
-                    </Link>
-                  </div>
-                    <PublishButtons id={r.id} status={r.status ?? undefined} />
+
+                    <div className="flex gap-2">
+                      {/* Кнопки публикации/снятия */}
+                      <PublishButtons id={r.id} status={r.status ?? undefined} />
+
+                      {/* Ссылка на редактирование */}
+                      <Link
+                        href={`/listings/${r.id}/edit`}
+                        className="px-3 py-1 border rounded-md text-sm hover:bg-muted"
+                      >
+                        Редактировать
+                      </Link>
+                    </div>
                   </div>
                 </div>
               </div>
