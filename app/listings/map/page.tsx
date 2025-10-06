@@ -2,15 +2,13 @@
 
 import dynamic from 'next/dynamic';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import LeafletSetup from './LeafletSetup'; // ← вот это важно
+import LeafletSetup from './LeafletSetup'; // ← импорт setup
 
 const Map = dynamic(() => import('react-leaflet').then(m => m.MapContainer), { ssr: false });
 const TileLayer = dynamic(() => import('react-leaflet').then(m => m.TileLayer), { ssr: false });
 const Marker = dynamic(() => import('react-leaflet').then(m => m.Marker), { ssr: false });
 const Popup = dynamic(() => import('react-leaflet').then(m => m.Popup), { ssr: false });
 const Circle = dynamic(() => import('react-leaflet').then(m => m.Circle), { ssr: false });
-
-// ...и дальше твой код страницы (мы ранее присылали полный файл)
 
 type Row = {
   id: string;
@@ -62,12 +60,11 @@ export default function ListingsMapPage() {
 
   return (
     <div className="h-[calc(100vh-70px)] relative">
+      {/* ⬇️ ВОТ ЗДЕСЬ — ПЕРВЫМ ЭЛЕМЕНТОМ ВНУТРИ КОНТЕЙНЕРА */}
       <LeafletSetup />
 
-      <div
-        className="absolute z-[1000] right-3 top-3 pointer-events-none"
-        style={{ width: 260 }}
-      >
+      {/* Панель поверх карты */}
+      <div className="absolute z-[1000] right-3 top-3 pointer-events-none" style={{ width: 260 }}>
         <div className="rounded-xl border bg-white/95 shadow p-3 space-y-2 pointer-events-auto">
           <div className="text-sm">Найдено: <b>{count}</b></div>
           <div className="text-xs text-muted-foreground">Радиус (визуально): {radiusKm} км</div>
