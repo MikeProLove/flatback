@@ -135,7 +135,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     }
 
     // --- загрузка новых фото new_photos[]
-    // 2) фото — загружаем через admin (обходит RLS)
+    // 2) фото — загружаем через sb (service role)
     const files = form.getAll('photos') as File[];
     const rowsToInsert: { listing_id: string; url: string; storage_path: string; sort_order: number }[] = [];
     
@@ -146,7 +146,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
       const ext = (f.name.split('.').pop() || 'jpg').toLowerCase();
       const path = `${ownerId}/${params.id}/${crypto.randomUUID()}.${ext}`;
     
-      const up = await admin.storage.from('listings').upload(path, f, {
+      const up = await sb.storage.from('listings').upload(path, f, {
         contentType: f.type,
         upsert: false,
       });
@@ -155,7 +155,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
         continue;
       }
     
-      const pub = admin.storage.from('listings').getPublicUrl(path);
+      const pub = sb.storage.from('listings').getPublicUrl(path);
       rowsToInsert.push({
         listing_id: params.id,
         url: pub.data.publicUrl,
@@ -174,23 +174,24 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     const newTour = form.get('tour_file') as File | null;
 
     if (removeTour && listingRow.tour_file_path) {
-      await sb.storage.from('listings-3d').remove([listingRow.tour_file_path]);
+      await ssb.storage.from('listings-3d').upload([listingRow.tour_file_path]);
       await sb.from('listings').update({ tour_file_path: null }).eq('id', params.id);
     }
 
     if (newTour && newTour.size > 0) {
       // удалим старый, если был
-      if (listingRow.tour_file_path) {
-        await sb.storage.from('listings-3d').remove([listingRow.tour_file_path]).catch(() => {});
-      }
-      const ext = (newTour.name.split('.').pop() || 'bin').toLowerCase();
+       const tourFile = form.get('tour_file') as File | null;
+    if (tourFile && tourFile.size > 0) {
+      const ext = (tourFile.name.split('.').pop() || 'bin').toLowerCase();
       const tpath = `${ownerId}/${params.id}/${crypto.randomUUID()}.${ext}`;
-      const up = await sb.storage.from('listings-3d').upload(tpath, newTour, {
-        contentType: newTour.type || 'application/octet-stream',
+      const up = await sb.storage.from('listings-3d').upload(tpath, tourFile, {
+        contentType: tourFile.type,
         upsert: false,
       });
       if (!up.error) {
         await sb.from('listings').update({ tour_file_path: tpath }).eq('id', params.id);
+      } else {
+        console.error('[storage] tour upload', up.error);
       }
     }
 
