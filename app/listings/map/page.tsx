@@ -1,8 +1,5 @@
 'use client';
 
-export const dynamic = 'force-dynamic';
-export const revalidate = 0;
-
 import { useEffect, useMemo, useRef, useState } from 'react';
 import maplibregl, { Map as MLMap, LngLatBoundsLike, GeoJSONSource } from 'maplibre-gl';
 
@@ -34,10 +31,7 @@ function toGeoJSON(rows: MarkerRow[]): GeoJSON.FeatureCollection {
         city: r.city,
         cover_url: r.cover_url || null,
       },
-      geometry: {
-        type: 'Point',
-        coordinates: [r.lng, r.lat],
-      },
+      geometry: { type: 'Point', coordinates: [r.lng, r.lat] },
     })),
   };
 }
@@ -49,13 +43,14 @@ export default function MapPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const center = useMemo<[number, number]>(() => [55.751244, 37.618423], []); // Москва [lat, lng]
+  const center = useMemo<[number, number]>(() => [55.751244, 37.618423], []); // Москва [lng, lat]
   const styleUrl = useMemo(() => {
     const key = process.env.NEXT_PUBLIC_MAPTILER_KEY;
     if (!key) return '';
     return `https://api.maptiler.com/maps/streets-v2/style.json?key=${key}`;
   }, []);
 
+  // грузим точки
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -74,12 +69,10 @@ export default function MapPage() {
     return () => { alive = false; };
   }, []);
 
+  // инициализация карты
   useEffect(() => {
     if (!containerRef.current) return;
-    if (!styleUrl) {
-      setError('NEXT_PUBLIC_MAPTILER_KEY не задан.');
-      return;
-    }
+    if (!styleUrl) { setError('NEXT_PUBLIC_MAPTILER_KEY не задан.'); return; }
 
     const map = new maplibregl.Map({
       container: containerRef.current,
@@ -90,11 +83,9 @@ export default function MapPage() {
     });
 
     mapRef.current = map;
-
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
 
     map.on('load', () => {
-      // Источник с кластерами
       map.addSource('listings', {
         type: 'geojson',
         data: toGeoJSON(rows),
@@ -103,7 +94,6 @@ export default function MapPage() {
         clusterMaxZoom: 14,
       });
 
-      // Кластеры (круг)
       map.addLayer({
         id: 'clusters',
         type: 'circle',
@@ -124,7 +114,6 @@ export default function MapPage() {
         }
       });
 
-      // Число в кластере
       map.addLayer({
         id: 'cluster-count',
         type: 'symbol',
@@ -135,12 +124,9 @@ export default function MapPage() {
           'text-font': ['Noto Sans Regular'],
           'text-size': 12
         },
-        paint: {
-          'text-color': '#003366'
-        }
+        paint: { 'text-color': '#003366' }
       });
 
-      // Некластерные точки
       map.addLayer({
         id: 'unclustered-point',
         type: 'circle',
@@ -154,7 +140,6 @@ export default function MapPage() {
         }
       });
 
-      // Клик по кластеру — зум внутрь
       map.on('click', 'clusters', (e) => {
         const features = map.queryRenderedFeatures(e.point, { layers: ['clusters'] });
         const clusterId = features[0]?.properties?.cluster_id;
@@ -167,12 +152,11 @@ export default function MapPage() {
         });
       });
 
-      // Клик по точке — попап с кнопкой перехода
       map.on('click', 'unclustered-point', (e) => {
         const f = map.queryRenderedFeatures(e.point, { layers: ['unclustered-point'] })?.[0];
         if (!f) return;
         const p = f.properties as any;
-        const coords = (f.geometry as any).coordinates as [number, number]; // [lng, lat]
+        const coords = (f.geometry as any).coordinates as [number, number];
 
         const html = `
           <div style="max-width:220px;">
@@ -190,49 +174,32 @@ export default function MapPage() {
           .addTo(map);
       });
 
-      // Курсор-рука на интерактивных слоях
       ['clusters', 'unclustered-point'].forEach((layer) => {
         map.on('mouseenter', layer, () => map.getCanvas().style.cursor = 'pointer');
         map.on('mouseleave', layer, () => map.getCanvas().style.cursor = '');
       });
 
-      // Авто-fit по точкам
       if (rows.length) {
         const lats = rows.map((r) => r.lat);
         const lngs = rows.map((r) => r.lng);
-        const minLat = Math.min(...lats), maxLat = Math.max(...lats);
-        const minLng = Math.min(...lngs), maxLng = Math.max(...lngs);
-        const bounds: LngLatBoundsLike = [[minLng, minLat], [maxLng, maxLat]];
+        const bounds: LngLatBoundsLike = [[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]];
         map.fitBounds(bounds, { padding: 40, duration: 400 });
       }
     });
 
-    return () => {
-      try { map.remove(); } catch {}
-      mapRef.current = null;
-    };
+    return () => { try { map.remove(); } catch {} mapRef.current = null; };
   }, [styleUrl, center, rows]);
 
   return (
     <div className="mx-auto max-w-[1200px] px-4 py-6">
       <h1 className="text-2xl font-semibold mb-4">Карта объявлений</h1>
 
-      {error ? (
-        <div className="rounded-2xl border p-3 text-sm text-red-600 mb-3">{error}</div>
-      ) : null}
-      {loading ? (
-        <div className="rounded-2xl border p-3 text-sm text-muted-foreground mb-3">Загружаем точки…</div>
-      ) : null}
+      {error ? <div className="rounded-2xl border p-3 text-sm text-red-600 mb-3">{error}</div> : null}
+      {loading ? <div className="rounded-2xl border p-3 text-sm text-muted-foreground mb-3">Загружаем точки…</div> : null}
 
       <div
         ref={containerRef}
-        style={{
-          width: '100%',
-          height: '70vh',
-          borderRadius: 16,
-          overflow: 'hidden',
-          border: '1px solid #eee',
-        }}
+        style={{ width: '100%', height: '70vh', borderRadius: 16, overflow: 'hidden', border: '1px solid #eee' }}
       />
     </div>
   );
