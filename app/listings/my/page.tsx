@@ -98,7 +98,21 @@ export default async function MyListingsPage() {
                         {r.status}
                       </span>
                     </div>
-
+                  <div className="flex gap-2">
+                    {l.status === 'published' ? (
+                      <button ...>Снять с публикации</button>
+                    ) : (
+                      <button ...>Опубликовать</button>
+                    )}
+                  
+                    {/* ← ДОБАВЬ ЭТУ ССЫЛКУ */}
+                    <Link
+                      href={`/listings/${l.id}/edit`}
+                      className="px-3 py-1 border rounded-md text-sm hover:bg-muted"
+                    >
+                      Редактировать
+                    </Link>
+                  </div>
                     <PublishButtons id={r.id} status={r.status ?? undefined} />
                   </div>
                 </div>
