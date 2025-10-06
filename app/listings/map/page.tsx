@@ -3,32 +3,32 @@
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
-import dynamic from 'next/dynamic';
+import NextDynamic from 'next/dynamic';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import LeafletSetup from './LeafletSetup';
 
-// Делаем динамические импорты и упрощаем типы до any, чтобы TS не ругался на пропсы
-const Map = dynamic(
+// Динамические импорты, типы упрощаем до any
+const Map = NextDynamic(
   () => import('react-leaflet').then((m) => m.MapContainer),
   { ssr: false }
 ) as any;
 
-const TileLayer = dynamic(
+const TileLayer = NextDynamic(
   () => import('react-leaflet').then((m) => m.TileLayer),
   { ssr: false }
 ) as any;
 
-const Marker = dynamic(
+const Marker = NextDynamic(
   () => import('react-leaflet').then((m) => m.Marker),
   { ssr: false }
 ) as any;
 
-const Popup = dynamic(
+const Popup = NextDynamic(
   () => import('react-leaflet').then((m) => m.Popup),
   { ssr: false }
 ) as any;
 
-const Circle = dynamic(
+const Circle = NextDynamic(
   () => import('react-leaflet').then((m) => m.Circle),
   { ssr: false }
 ) as any;
@@ -84,8 +84,7 @@ export default function ListingsMapPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Центр карты (Москва)
-  const center = [55.751244, 37.618423] as any;
+  const center = [55.751244, 37.618423] as any; // Москва
 
   return (
     <div className="h-[calc(100vh-70px)] relative">
