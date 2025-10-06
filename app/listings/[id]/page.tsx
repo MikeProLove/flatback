@@ -6,6 +6,7 @@ import { notFound } from 'next/navigation';
 import { auth } from '@clerk/nextjs/server';
 import { getSupabaseAdmin } from '@/lib/supabase-admin';
 import PublishButtons from '../_components/PublishButtons';
+import Link from 'next/link';
 
 type ListingRow = {
   id: string;
