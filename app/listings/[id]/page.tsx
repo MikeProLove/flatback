@@ -30,6 +30,11 @@ type ListingRow = {
   created_at: string;
 };
 
+type PhotoRow = {
+  url: string;
+  sort_order: number | null;
+};
+
 function money(n?: number | null) {
   const v = Number(n ?? 0);
   try {
@@ -46,7 +51,7 @@ function money(n?: number | null) {
 export default async function ListingPage({ params }: { params: { id: string } }) {
   const sb = getSupabaseAdmin();
 
- // 1) получаем объявление строго одного типа
+  // 1) Получаем объявление одной строкой с явной типизацией
   const { data: listing, error } = await sb
     .from('listings')
     .select(
@@ -74,24 +79,24 @@ export default async function ListingPage({ params }: { params: { id: string } }
       ].join(',')
     )
     .eq('id', params.id)
-    .single<ListingRow>(); // <-- ключевая разница
-  
-  if (error || !listing) notFound();
-  const listing = resp.data as ListingRow;
+    .single<ListingRow>();
 
-  // 2) фото
+  if (error || !listing) notFound();
+
+  // 2) Фото
   const { data: photos } = await sb
     .from('listing_photos')
     .select('url, sort_order')
     .eq('listing_id', params.id)
     .order('sort_order', { ascending: true });
 
-  // 3) проверка владельца для кнопок публикации
+  const photosTyped = (photos ?? []) as PhotoRow[];
+
+  // 3) Проверка владельца для показа кнопок
   const { userId } = auth();
   const isOwner =
     !!userId &&
-    (listing.owner_id === userId ||
-      (!listing.owner_id && listing.user_id === userId));
+    (listing.owner_id === userId || (!listing.owner_id && listing.user_id === userId));
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-8 space-y-6">
@@ -107,9 +112,7 @@ export default async function ListingPage({ params }: { params: { id: string } }
             Статус:{' '}
             <span
               className={
-                listing.status === 'published'
-                  ? 'text-green-600'
-                  : 'text-yellow-700'
+                listing.status === 'published' ? 'text-green-600' : 'text-yellow-700'
               }
             >
               {listing.status}
@@ -122,10 +125,10 @@ export default async function ListingPage({ params }: { params: { id: string } }
         ) : null}
       </div>
 
-      {/* фото */}
+      {/* Фото */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        {photos?.length ? (
-          photos.map((p, i) => (
+        {photosTyped.length ? (
+          photosTyped.map((p, i) => (
             // eslint-disable-next-line @next/next/no-img-element
             <img
               key={`${p.url}-${i}`}
@@ -141,7 +144,7 @@ export default async function ListingPage({ params }: { params: { id: string } }
         )}
       </div>
 
-      {/* краткие характеристики */}
+      {/* Краткие характеристики */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div className="rounded-2xl border p-4 space-y-2">
           <div className="text-base font-semibold">{money(listing.price)}</div>
