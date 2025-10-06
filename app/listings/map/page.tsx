@@ -2,13 +2,36 @@
 
 import dynamic from 'next/dynamic';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import LeafletSetup from './LeafletSetup'; // ← импорт setup
+import LeafletSetup from './LeafletSetup';
 
-const Map = dynamic(() => import('react-leaflet').then(m => m.MapContainer), { ssr: false });
-const TileLayer = dynamic(() => import('react-leaflet').then(m => m.TileLayer), { ssr: false });
-const Marker = dynamic(() => import('react-leaflet').then(m => m.Marker), { ssr: false });
-const Popup = dynamic(() => import('react-leaflet').then(m => m.Popup), { ssr: false });
-const Circle = dynamic(() => import('react-leaflet').then(m => m.Circle), { ssr: false });
+// ✅ Явно типизируем MapContainer, остальное упростим до any
+import type { MapContainerProps } from 'react-leaflet';
+import type { LatLngExpression } from 'leaflet';
+
+const Map = dynamic(
+  () => import('react-leaflet').then((m) => m.MapContainer),
+  { ssr: false }
+) as unknown as (props: MapContainerProps) => JSX.Element;
+
+const TileLayer = dynamic(
+  () => import('react-leaflet').then((m) => m.TileLayer),
+  { ssr: false }
+) as unknown as any;
+
+const Marker = dynamic(
+  () => import('react-leaflet').then((m) => m.Marker),
+  { ssr: false }
+) as unknown as any;
+
+const Popup = dynamic(
+  () => import('react-leaflet').then((m) => m.Popup),
+  { ssr: false }
+) as unknown as any;
+
+const Circle = dynamic(
+  () => import('react-leaflet').then((m) => m.Circle),
+  { ssr: false }
+) as unknown as any;
 
 type Row = {
   id: string;
@@ -25,7 +48,9 @@ type Row = {
 function money(n: number) {
   try {
     return new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', maximumFractionDigits: 0 }).format(n || 0);
-  } catch { return `${Math.round(n||0)} ₽`; }
+  } catch {
+    return `${Math.round(n || 0)} ₽`;
+  }
 }
 
 export default function ListingsMapPage() {
@@ -45,7 +70,10 @@ export default function ListingsMapPage() {
     const b = map.getBounds();
     const bbox = `${b.getSouth()},${b.getWest()},${b.getNorth()},${b.getEast()}`;
 
-    const res = await fetch(`/api/listings/search?${queryFromURL}${queryFromURL ? '&' : ''}bbox=${bbox}&per_page=500`, { cache: 'no-store' });
+    const res = await fetch(
+      `/api/listings/search?${queryFromURL}${queryFromURL ? '&' : ''}bbox=${bbox}&per_page=500`,
+      { cache: 'no-store' }
+    );
     const json = await res.json();
     setRows(json.rows ?? []);
     setCount(json.count ?? 0);
@@ -56,17 +84,19 @@ export default function ListingsMapPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const center = [55.751244, 37.618423] as [number, number]; // Москва
+  const center: LatLngExpression = [55.751244, 37.618423]; // Москва
 
   return (
     <div className="h-[calc(100vh-70px)] relative">
-      {/* ⬇️ ВОТ ЗДЕСЬ — ПЕРВЫМ ЭЛЕМЕНТОМ ВНУТРИ КОНТЕЙНЕРА */}
+      {/* Подключаем css и иконки leaflet */}
       <LeafletSetup />
 
       {/* Панель поверх карты */}
       <div className="absolute z-[1000] right-3 top-3 pointer-events-none" style={{ width: 260 }}>
         <div className="rounded-xl border bg-white/95 shadow p-3 space-y-2 pointer-events-auto">
-          <div className="text-sm">Найдено: <b>{count}</b></div>
+          <div className="text-sm">
+            Найдено: <b>{count}</b>
+          </div>
           <div className="text-xs text-muted-foreground">Радиус (визуально): {radiusKm} км</div>
           <input
             type="range"
@@ -77,7 +107,9 @@ export default function ListingsMapPage() {
             className="w-full"
           />
           <div className="flex gap-2">
-            <button onClick={searchHere} className="px-3 py-2 border rounded-md text-sm">Искать здесь</button>
+            <button onClick={searchHere} className="px-3 py-2 border rounded-md text-sm">
+              Искать здесь
+            </button>
             <button
               onClick={() => {
                 if (!navigator.geolocation) return;
@@ -101,10 +133,7 @@ export default function ListingsMapPage() {
         whenCreated={(m) => (mapRef.current = m)}
         style={{ height: '100%', width: '100%' }}
       >
-        <TileLayer
-          attribution="&copy; OpenStreetMap"
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-        />
+        <TileLayer attribution="&copy; OpenStreetMap" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
         <Circle center={center} radius={radiusKm * 1000} />
         {rows
           .filter((r) => r.lat != null && r.lng != null)
@@ -115,7 +144,9 @@ export default function ListingsMapPage() {
                   <div className="font-medium">{r.title ?? 'Объявление'}</div>
                   <div className="text-xs text-muted-foreground">{r.city ?? ''}</div>
                   <div className="text-sm font-semibold">{money(Number(r.price) || 0)}</div>
-                  <a className="underline text-sm" href={`/listings/${r.id}`}>Подробнее</a>
+                  <a className="underline text-sm" href={`/listings/${r.id}`}>
+                    Подробнее
+                  </a>
                 </div>
               </Popup>
             </Marker>
