@@ -1,8 +1,8 @@
-// app/listings/map/page.tsx
 'use client';
 
 import dynamic from 'next/dynamic';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import LeafletSetup from './LeafletSetup';
 
 const Map = dynamic(() => import('react-leaflet').then(m => m.MapContainer), { ssr: false });
 const TileLayer = dynamic(() => import('react-leaflet').then(m => m.TileLayer), { ssr: false });
@@ -45,31 +45,30 @@ export default function ListingsMapPage() {
     const b = map.getBounds();
     const bbox = `${b.getSouth()},${b.getWest()},${b.getNorth()},${b.getEast()}`;
 
-    const res = await fetch(`/api/listings/search?${queryFromURL}${queryFromURL ? '&' : ''}bbox=${bbox}&per_page=500`);
+    const res = await fetch(`/api/listings/search?${queryFromURL}${queryFromURL ? '&' : ''}bbox=${bbox}&per_page=500`, { cache: 'no-store' });
     const json = await res.json();
     setRows(json.rows ?? []);
     setCount(json.count ?? 0);
   }
 
   useEffect(() => {
-    searchHere(); // первичный запрос
+    searchHere();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const center = [55.751244, 37.618423] as [number, number]; // Москва по умолчанию
+  const center = [55.751244, 37.618423] as [number, number]; // Москва
 
   return (
     <div className="h-[calc(100vh-70px)] relative">
-      {/* Панель поверх карты с правильным кликом */}
+      <LeafletSetup />
+
       <div
         className="absolute z-[1000] right-3 top-3 pointer-events-none"
         style={{ width: 260 }}
       >
         <div className="rounded-xl border bg-white/95 shadow p-3 space-y-2 pointer-events-auto">
           <div className="text-sm">Найдено: <b>{count}</b></div>
-          <div className="text-xs text-muted-foreground">
-            Радиус (визуально): {radiusKm} км
-          </div>
+          <div className="text-xs text-muted-foreground">Радиус (визуально): {radiusKm} км</div>
           <input
             type="range"
             min={1}
@@ -94,9 +93,6 @@ export default function ListingsMapPage() {
               Моя гео
             </button>
           </div>
-          <div className="text-xs">
-            Фильтры берём из URL (как у списка). Кнопка «Искать здесь» обновляет точки.
-          </div>
         </div>
       </div>
 
@@ -107,12 +103,10 @@ export default function ListingsMapPage() {
         style={{ height: '100%', width: '100%' }}
       >
         <TileLayer
-          attribution='&copy; OpenStreetMap'
+          attribution="&copy; OpenStreetMap"
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
-        {/* Визуальный круг — удобно настраивать радиус */}
         <Circle center={center} radius={radiusKm * 1000} />
-
         {rows
           .filter((r) => r.lat != null && r.lng != null)
           .map((r) => (
