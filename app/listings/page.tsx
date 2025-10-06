@@ -14,6 +14,8 @@ type Row = {
   cover_url?: string | null;
   created_at: string;
   status: string;
+  owner_id?: string | null;
+  user_id?: string | null;
 };
 
 function money(n: number | null | undefined) {
@@ -38,9 +40,10 @@ async function getData(sp: Record<string, string | undefined>) {
   const from = (page - 1) * perPage;
   const to = from + perPage - 1;
 
+  // 1) основная выборка (включаем owner_id/user_id для storage-фоллбэка)
   let q = sb
     .from('listings_with_cover')
-    .select('id,title,price,city,rooms,area_total,cover_url,created_at,status', { count: 'exact' })
+    .select('id,title,price,city,rooms,area_total,cover_url,created_at,status,owner_id,user_id', { count: 'exact' })
     .eq('status', 'published');
 
   const qStr = (sp.q || '').trim();
@@ -48,7 +51,6 @@ async function getData(sp: Record<string, string | undefined>) {
     const safe = qStr.replace(/%/g, '');
     q = q.or(`title.ilike.%${safe}%,city.ilike.%${safe}%,address.ilike.%${safe}%`);
   }
-
   if (sp.city) q = q.ilike('city', sp.city);
   if (sp.rooms) q = q.eq('rooms', toInt(sp.rooms));
   if (sp.price_min) q = q.gte('price', toInt(sp.price_min));
@@ -66,28 +68,49 @@ async function getData(sp: Record<string, string | undefined>) {
   q = q.range(from, to);
 
   const { data, error, count } = await q;
-
   let rows = (data ?? []) as Row[];
-  let covers = new Map<string, string>();
 
-  // Фоллбэк: если у части объявлений cover_url пуст — тянем первое фото из listing_photos
-  const missingIds = rows.filter(r => !r.cover_url).map(r => r.id);
-  if (missingIds.length) {
+  // 2) карта обложек
+  const covers = new Map<string, string>();
+
+  // 2.1) фоллбэк из listing_photos
+  const missing = rows.filter((r) => r && r.id && !r.cover_url).map((r) => r.id);
+  if (missing.length) {
     const { data: ph } = await sb
       .from('listing_photos')
       .select('listing_id,url,sort_order')
-      .in('listing_id', missingIds)
+      .in('listing_id', missing)
       .order('sort_order', { ascending: true });
-    if (ph) {
-      for (const p of ph as { listing_id: string; url: string; sort_order: number }[]) {
-        if (!covers.has(p.listing_id)) covers.set(p.listing_id, p.url);
-      }
+    for (const p of (ph ?? []) as { listing_id: string; url: string; sort_order: number }[]) {
+      if (!covers.has(p.listing_id)) covers.set(p.listing_id, p.url);
     }
   }
 
+  // 2.2) фоллбэк из Storage (если нет строки в listing_photos, но файл есть в бакете)
+  const stillMissing = rows.filter((r) => r && r.id && !(r.cover_url || covers.get(r.id)));
+  if (stillMissing.length) {
+    await Promise.all(
+      stillMissing.map(async (r) => {
+        const owner = r.owner_id || r.user_id;
+        if (!owner) return;
+        const prefix = `${owner}/${r.id}`;
+        const list = await sb.storage.from('listings').list(prefix, { limit: 1 });
+        const first = list?.data?.[0];
+        if (first) {
+          const path = `${prefix}/${first.name}`;
+          const pub = sb.storage.from('listings').getPublicUrl(path);
+          covers.set(r.id, pub.data.publicUrl);
+        }
+      })
+    );
+  }
+
+  // 3) отфильтровываем «дырки» на всякий случай
+  rows = rows.filter((r) => r && r.id);
+
   return {
     rows,
-    covers,           // карта listing_id -> url обложки
+    covers,
     count: count ?? 0,
     page,
     perPage,
