@@ -7,6 +7,29 @@ import { auth } from '@clerk/nextjs/server';
 import { getSupabaseAdmin } from '@/lib/supabase-admin';
 import PublishButtons from '../_components/PublishButtons';
 
+type ListingRow = {
+  id: string;
+  title: string | null;
+  status: 'draft' | 'published' | string | null;
+  price: number | null;
+  currency: string | null;
+  deposit: number | null;
+  city: string | null;
+  address: string | null;
+  description: string | null;
+  rooms: number | null;
+  area_total: number | null;
+  area_living: number | null;
+  area_kitchen: number | null;
+  floor: number | null;
+  floors_total: number | null;
+  lat: number | null;
+  lng: number | null;
+  owner_id: string | null;
+  user_id: string | null;
+  created_at: string;
+};
+
 function money(n?: number | null) {
   const v = Number(n ?? 0);
   try {
@@ -20,15 +43,11 @@ function money(n?: number | null) {
   }
 }
 
-export default async function ListingPage({
-  params,
-}: {
-  params: { id: string };
-}) {
+export default async function ListingPage({ params }: { params: { id: string } }) {
   const sb = getSupabaseAdmin();
 
-  // 1) основное объявление
-  const { data: listing, error: lErr } = await sb
+  // 1) получаем объявление c явной типизацией
+  const resp = await sb
     .from('listings')
     .select(
       [
@@ -57,7 +76,8 @@ export default async function ListingPage({
     .eq('id', params.id)
     .maybeSingle();
 
-  if (lErr || !listing) notFound();
+  if (resp.error || !resp.data) notFound();
+  const listing = resp.data as ListingRow;
 
   // 2) фото
   const { data: photos } = await sb
@@ -66,7 +86,7 @@ export default async function ListingPage({
     .eq('listing_id', params.id)
     .order('sort_order', { ascending: true });
 
-  // 3) показывать ли кнопки публикации
+  // 3) проверка владельца для кнопок публикации
   const { userId } = auth();
   const isOwner =
     !!userId &&
@@ -98,7 +118,7 @@ export default async function ListingPage({
         </div>
 
         {isOwner ? (
-          <PublishButtons id={listing.id} status={listing.status} />
+          <PublishButtons id={listing.id} status={listing.status ?? undefined} />
         ) : null}
       </div>
 
