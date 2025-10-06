@@ -46,8 +46,8 @@ function money(n?: number | null) {
 export default async function ListingPage({ params }: { params: { id: string } }) {
   const sb = getSupabaseAdmin();
 
-  // 1) получаем объявление c явной типизацией
-  const resp = await sb
+ // 1) получаем объявление строго одного типа
+  const { data: listing, error } = await sb
     .from('listings')
     .select(
       [
@@ -74,9 +74,9 @@ export default async function ListingPage({ params }: { params: { id: string } }
       ].join(',')
     )
     .eq('id', params.id)
-    .maybeSingle();
-
-  if (resp.error || !resp.data) notFound();
+    .single<ListingRow>(); // <-- ключевая разница
+  
+  if (error || !listing) notFound();
   const listing = resp.data as ListingRow;
 
   // 2) фото
