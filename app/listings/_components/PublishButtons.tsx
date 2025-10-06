@@ -2,58 +2,44 @@
 
 import { useState } from 'react';
 
-type Props = {
-  id: string;
-  status?: string;         // 'draft' | 'published' | ...
-  onDone?: () => void;     // опционально: что сделать после успеха
-};
+export default function PublishButtons({ id, status }: { id: string; status?: string }) {
+  const [loading, setLoading] = useState<'pub' | 'unpub' | null>(null);
 
-export default function PublishButtons({ id, status, onDone }: Props) {
-  const [loading, setLoading] = useState(false);
-  const isPublished = (status ?? '').toLowerCase() === 'published';
-
-  async function doAction(action: 'publish' | 'unpublish') {
+  async function change(action: 'publish' | 'unpublish') {
     try {
-      setLoading(true);
+      setLoading(action === 'publish' ? 'pub' : 'unpub');
       const res = await fetch(`/api/listings/${id}/status`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action }),
       });
-      const data = await res.json().catch(() => null);
       if (!res.ok) {
-        alert(data?.message || 'Не удалось изменить статус');
+        const j = await res.json().catch(() => ({}));
+        alert(j?.message || 'Не удалось изменить статус');
         return;
       }
-      // Обновляем UI
-      if (onDone) onDone();
-      else location.reload();
-    } catch (e: any) {
-      alert(e?.message || 'Ошибка сети');
+      location.reload();
     } finally {
-      setLoading(false);
+      setLoading(null);
     }
   }
 
-  return (
-    <div className="flex gap-2">
-      {isPublished ? (
-        <button
-          onClick={() => doAction('unpublish')}
-          disabled={loading}
-          className="px-3 py-1 border rounded-md text-sm"
-        >
-          {loading ? 'Снимаем…' : 'Снять с публикации'}
-        </button>
-      ) : (
-        <button
-          onClick={() => doAction('publish')}
-          disabled={loading}
-          className="px-3 py-1 border rounded-md text-sm"
-        >
-          {loading ? 'Публикуем…' : 'Опубликовать'}
-        </button>
-      )}
-    </div>
+  const isPublished = status === 'published';
+  return isPublished ? (
+    <button
+      onClick={() => change('unpublish')}
+      disabled={loading !== null}
+      className="px-3 py-1 border rounded-md text-sm"
+    >
+      {loading === 'unpub' ? 'Снимаем…' : 'Снять с публикации'}
+    </button>
+  ) : (
+    <button
+      onClick={() => change('publish')}
+      disabled={loading !== null}
+      className="px-3 py-1 border rounded-md text-sm"
+    >
+      {loading === 'pub' ? 'Публикуем…' : 'Опубликовать'}
+    </button>
   );
 }
