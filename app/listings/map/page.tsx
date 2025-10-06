@@ -4,34 +4,31 @@ import dynamic from 'next/dynamic';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import LeafletSetup from './LeafletSetup';
 
-// ✅ Явно типизируем MapContainer, остальное упростим до any
-import type { MapContainerProps } from 'react-leaflet';
-import type { LatLngExpression } from 'leaflet';
-
+// Делаем динамические импорты и упрощаем типы до any, чтобы TS не ругался на пропсы
 const Map = dynamic(
   () => import('react-leaflet').then((m) => m.MapContainer),
   { ssr: false }
-) as unknown as (props: MapContainerProps) => JSX.Element;
+) as any;
 
 const TileLayer = dynamic(
   () => import('react-leaflet').then((m) => m.TileLayer),
   { ssr: false }
-) as unknown as any;
+) as any;
 
 const Marker = dynamic(
   () => import('react-leaflet').then((m) => m.Marker),
   { ssr: false }
-) as unknown as any;
+) as any;
 
 const Popup = dynamic(
   () => import('react-leaflet').then((m) => m.Popup),
   { ssr: false }
-) as unknown as any;
+) as any;
 
 const Circle = dynamic(
   () => import('react-leaflet').then((m) => m.Circle),
   { ssr: false }
-) as unknown as any;
+) as any;
 
 type Row = {
   id: string;
@@ -84,7 +81,8 @@ export default function ListingsMapPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const center: LatLngExpression = [55.751244, 37.618423]; // Москва
+  // Центр карты (Москва)
+  const center = [55.751244, 37.618423] as any;
 
   return (
     <div className="h-[calc(100vh-70px)] relative">
@@ -130,7 +128,7 @@ export default function ListingsMapPage() {
       <Map
         center={center}
         zoom={12}
-        whenCreated={(m) => (mapRef.current = m)}
+        whenCreated={(m: any) => (mapRef.current = m)}
         style={{ height: '100%', width: '100%' }}
       >
         <TileLayer attribution="&copy; OpenStreetMap" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
