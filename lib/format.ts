@@ -1,6 +1,4 @@
 // lib/format.ts
-
-// Простая утилита форматирования цен
 export function money(
   value: number | string | null | undefined,
   currency: 'RUB' | 'USD' | 'EUR' = 'RUB',
