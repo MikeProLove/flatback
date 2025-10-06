@@ -98,7 +98,17 @@ export default async function ListingPage({ params }: { params: { id: string } }
   const isOwner =
     !!userId &&
     (listing.owner_id === userId || (!listing.owner_id && listing.user_id === userId));
-
+    {isOwner && (
+  <div className="mt-2">
+    <Link
+      href={`/listings/${listing.id}/edit`}
+      className="inline-flex items-center px-3 py-1 border rounded-md text-sm hover:bg-muted"
+    >
+      Редактировать
+    </Link>
+  </div>
+)}
+  
   return (
     <div className="mx-auto max-w-5xl px-4 py-8 space-y-6">
       <div className="flex items-start justify-between gap-4">
