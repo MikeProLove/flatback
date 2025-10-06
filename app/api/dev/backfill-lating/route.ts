@@ -1,62 +1,46 @@
+// app/api/dev/backfill-latlng/route.ts
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
 import { NextResponse } from 'next/server';
+import { auth } from '@clerk/nextjs/server';
 import { getSupabaseAdmin } from '@/lib/supabase-admin';
-
-async function geocode(address: string) {
-  const url = new URL('https://nominatim.openstreetmap.org/search');
-  url.searchParams.set('q', address);
-  url.searchParams.set('format', 'json');
-  url.searchParams.set('limit', '1');
-
-  const res = await fetch(url, {
-    headers: { 'User-Agent': 'flatback/1.0 (admin@flatback.ru)' },
-    cache: 'no-store',
-  });
-  if (!res.ok) return null;
-
-  const arr = (await res.json()) as any[];
-  if (!arr?.[0]) return null;
-  return { lat: Number(arr[0].lat), lng: Number(arr[0].lon) };
-}
-
-export async function GET() {
-  // просто «пинг», чтобы проверить путь в браузере
-  return NextResponse.json({ ok: true, how: 'POST /api/dev/backfill-latlng' });
-}
+import { geocodeAddress } from '@/lib/geocode';
 
 export async function POST() {
   try {
+    const { userId } = auth();
+    if (!userId) return new NextResponse('Unauthorized', { status: 401 });
+
     const sb = getSupabaseAdmin();
 
-    // берём опубликованные без координат
-    const { data: rows, error } = await sb
+    // только ваши объявления
+    const { data: rows } = await sb
       .from('listings')
-      .select('id,address,city')
-      .eq('status', 'published')
+      .select('id, city, address')
+      .or(`owner_id.eq.${userId},user_id.eq.${userId}`)
       .is('lat', null)
-      .limit(200);
+      .is('lng', null)
+      .limit(50);
 
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-
-    const updated: string[] = [];
+    let updated = 0;
 
     for (const r of rows ?? []) {
-      const addr = [r.address, r.city].filter(Boolean).join(', ');
-      if (!addr) continue;
+      const q = [r.city, r.address].filter(Boolean).join(', ');
+      if (!q) continue;
+      const geo = await geocodeAddress(q);
+      if (!geo) continue;
 
-      const point = await geocode(addr);
-      if (!point) continue;
-
-      const { error: upErr } = await sb.from('listings').update(point).eq('id', r.id);
-      if (!upErr) updated.push(r.id);
+      const { error } = await sb.from('listings')
+        .update({ lat: geo.lat, lng: geo.lng })
+        .eq('id', r.id);
+      if (!error) updated++;
     }
 
-    return NextResponse.json({ updated });
+    return NextResponse.json({ ok: true, updated });
   } catch (e: any) {
-    console.error('[backfill-latlng]', e);
-    return new NextResponse('Internal error', { status: 500 });
+    console.error('[backfill-latlng] error', e);
+    return NextResponse.json({ ok: false, error: e?.message || 'failed' }, { status: 500 });
   }
 }
