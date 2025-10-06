@@ -1,15 +1,11 @@
-// app/listings/page.tsx
 export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
 import { getSupabaseAdmin } from '@/lib/supabase-admin';
-import { money } from '@/lib/format';
-import FavoriteButton from './FavoriteButton';
-import { auth } from '@clerk/nextjs/server';
+import SearchBar from './SearchBar';
 
-type ListingRow = {
+type Row = {
   id: string;
-  owner_id: string | null;
-  user_id: string | null;
   title: string | null;
   price: number | null;
   city: string | null;
@@ -20,117 +16,154 @@ type ListingRow = {
   status: string;
 };
 
-async function getData() {
-  const sb = getSupabaseAdmin();
-  const { userId } = auth();
-
-  // 1) берём опубликованные лоты + cover из вьюхи
-  const { data, error } = await sb
-    .from('listings_with_cover')
-    .select(
-      'id,title,price,city,rooms,area_total,cover_url,created_at,status,owner_id,user_id'
-    )
-    .eq('status', 'published')
-    .order('created_at', { ascending: false })
-    .limit(24);
-
-  if (error) {
-    return { listings: [] as ListingRow[], fallback: new Map<string, string>(), favSet: new Set<string>(), err: error.message };
+function money(n: number | null | undefined) {
+  const v = Number(n || 0);
+  try {
+    return new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', maximumFractionDigits: 0 }).format(v);
+  } catch {
+    return `${Math.round(v)} ₽`;
   }
-
-  const listings = (data ?? []) as ListingRow[];
-
-  // 2) фолбэк: если cover_url нет — берём первую фотку из storage
-  const fallback = new Map<string, string>();
-  const tasks = listings
-    .filter((l) => !l.cover_url)
-    .map(async (l) => {
-      const owner = l.owner_id || l.user_id;
-      if (!owner) return;
-      const prefix = `${owner}/${l.id}`;
-      const list = await sb.storage.from('listings').list(prefix, { limit: 1 });
-      const first = list?.data?.[0];
-      if (first) {
-        const url = sb.storage.from('listings').getPublicUrl(`${prefix}/${first.name}`).data.publicUrl;
-        fallback.set(l.id, url);
-      }
-    });
-  await Promise.all(tasks);
-
-  // 3) избранное текущего пользователя (для начального состояния сердечек)
-  const favSet = new Set<string>();
-  if (userId && listings.length) {
-    const ids = listings.map((l) => l.id);
-    const { data: favs } = await sb
-      .from('favorites')
-      .select('listing_id')
-      .eq('user_id', userId)
-      .in('listing_id', ids);
-    (favs ?? []).forEach((f) => favSet.add(String(f.listing_id)));
-  }
-
-  return { listings, fallback, favSet, err: null as string | null };
 }
 
-export default async function ListingsPage() {
-  const { listings, fallback, favSet, err } = await getData();
+function toInt(v: string | undefined, d = 0) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : d;
+}
+
+function keep<T extends Record<string, string | undefined>>(sp: T) {
+  return new URLSearchParams(
+    Object.fromEntries(Object.entries(sp).filter(([, v]) => v !== undefined)) as Record<string, string>
+  ).toString();
+}
+
+async function getData(sp: Record<string, string | undefined>) {
+  const sb = getSupabaseAdmin();
+
+  const page = Math.max(1, toInt(sp.page, 1));
+  const perPage = Math.min(50, Math.max(1, toInt(sp.per_page, 24)));
+  const from = (page - 1) * perPage;
+  const to = from + perPage - 1;
+
+  // Базовый запрос по вьюхе (включает cover_url)
+  let q = sb
+    .from('listings_with_cover')
+    .select('id,title,price,city,rooms,area_total,cover_url,created_at,status', { count: 'exact' })
+    .eq('status', 'published');
+
+  const qStr = (sp.q || '').trim();
+  if (qStr) {
+    const safe = qStr.replace(/%/g, ''); // чтобы не сломать запрос
+    q = q.or(
+      `title.ilike.%${safe}%,city.ilike.%${safe}%,address.ilike.%${safe}%`
+    );
+  }
+
+  if (sp.city) q = q.ilike('city', sp.city);
+  if (sp.rooms) q = q.eq('rooms', toInt(sp.rooms));
+  if (sp.price_min) q = q.gte('price', toInt(sp.price_min));
+  if (sp.price_max) q = q.lte('price', toInt(sp.price_max));
+  if (sp.area_min) q = q.gte('area_total', toInt(sp.area_min));
+  if (sp.area_max) q = q.lte('area_total', toInt(sp.area_max));
+  if (sp.with_photo === 'on') q = q.not('cover_url', 'is', null);
+
+  const sort = sp.sort || 'latest';
+  if (sort === 'price_asc') q = q.order('price', { ascending: true, nullsFirst: true });
+  else if (sort === 'price_desc') q = q.order('price', { ascending: false, nullsFirst: true });
+  else if (sort === 'area_desc') q = q.order('area_total', { ascending: false, nullsFirst: true });
+  else q = q.order('created_at', { ascending: false });
+
+  q = q.range(from, to);
+
+  const { data, error, count } = await q;
+
+  if (error) {
+    // Фолбек, если вьюхи нет — попробуем базовую таблицу (без фильтра по фото/cover_url)
+    const fb = await sb
+      .from('listings')
+      .select('id,title,price,city,rooms,area_total,created_at,status', { count: 'exact' })
+      .eq('status', 'published')
+      .order('created_at', { ascending: false })
+      .range(from, to);
+    return {
+      rows: (fb.data ?? []) as Row[],
+      count: fb.count ?? 0,
+      page,
+      perPage,
+      sp,
+      error: error.message,
+    };
+  }
+
+  return {
+    rows: (data ?? []) as Row[],
+    count: count ?? 0,
+    page,
+    perPage,
+    sp,
+    error: null as string | null,
+  };
+}
+
+export default async function ListingsPage({
+  searchParams,
+}: {
+  searchParams: Record<string, string | undefined>;
+}) {
+  const { rows, count, page, perPage, sp } = await getData(searchParams);
+  const totalPages = Math.max(1, Math.ceil(count / perPage));
+  const qsBase = keep(sp);
+
+  const pageHref = (p: number) => {
+    const u = new URLSearchParams(qsBase);
+    u.set('page', String(p));
+    u.set('per_page', String(perPage));
+    return `/listings?${u.toString()}`;
+  };
 
   return (
-    <div className="mx-auto max-w-6xl px-4 py-10 space-y-6">
+    <div className="mx-auto max-w-6xl px-4 py-8 space-y-4">
       <h1 className="text-2xl font-semibold">Объявления</h1>
 
-      {err ? (
-        <div className="rounded-2xl border p-6 text-sm text-red-600">
-          Ошибка загрузки: {err}
+      <SearchBar sp={sp} />
+
+      <div className="flex items-center justify-between text-sm">
+        <div className="text-muted-foreground">
+          Найдено: <b>{count}</b>
         </div>
-      ) : listings.length === 0 ? (
+        <div className="flex items-center gap-2">
+          {page > 1 && (
+            <a href={pageHref(page - 1)} className="px-2 py-1 border rounded">Назад</a>
+          )}
+          <div className="px-2">Стр. {page} из {totalPages}</div>
+          {page < totalPages && (
+            <a href={pageHref(page + 1)} className="px-2 py-1 border rounded">Вперёд</a>
+          )}
+        </div>
+      </div>
+
+      {rows.length === 0 ? (
         <div className="rounded-2xl border p-6 text-sm text-muted-foreground">
-          Пока нет объявлений. <a href="/listings/create" className="underline">Создайте первое</a>.
+          Ничего не найдено.
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {listings.map((l) => {
-            const cover = l.cover_url || fallback.get(l.id) || null;
-            const isFav = favSet.has(l.id);
-
-            return (
-              <div
-                key={l.id}
-                className="rounded-2xl border hover:shadow transition overflow-hidden relative"
-              >
-                {/* Избранное */}
-                <div className="absolute top-2 right-2 z-10">
-                  <FavoriteButton listingId={l.id} initial={isFav} />
-                </div>
-
-                <a href={`/listings/${l.id}`}>
-                  <div className="aspect-[4/3] bg-muted">
-                    {cover ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={cover}
-                        alt=""
-                        className="w-full h-full object-cover"
-                        loading="lazy"
-                      />
-                    ) : null}
-                  </div>
-
-                  <div className="p-4 space-y-2">
-                    <div className="text-lg font-semibold">
-                      {l.title ?? 'Объявление'}
-                    </div>
-                    <div className="text-sm text-muted-foreground">
-                      {l.city ?? '—'} · {l.rooms ?? '—'}к · {l.area_total ?? '—'} м²
-                    </div>
-                    <div className="text-base font-semibold">
-                      {money(Number(l.price) || 0)}
-                    </div>
-                  </div>
-                </a>
+          {rows.map((l) => (
+            <a key={l.id} href={`/listings/${l.id}`} className="rounded-2xl border hover:shadow transition overflow-hidden">
+              <div className="aspect-[4/3] bg-muted">
+                {('cover_url' in l && (l as any).cover_url) ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={(l as any).cover_url} alt="" className="w-full h-full object-cover" loading="lazy" />
+                ) : null}
               </div>
-            );
-          })}
+              <div className="p-4 space-y-2">
+                <div className="text-lg font-semibold">{l.title ?? 'Объявление'}</div>
+                <div className="text-sm text-muted-foreground">
+                  {l.city ?? '—'} · {l.rooms ?? '—'}к · {l.area_total ?? '—'} м²
+                </div>
+                <div className="text-base font-semibold">{money(l.price)}</div>
+              </div>
+            </a>
+          ))}
         </div>
       )}
     </div>
