@@ -8,7 +8,7 @@ import { auth } from '@clerk/nextjs/server';
 import { getSupabaseServer } from '@/lib/supabase-server';
 import { getSupabaseAdmin } from '@/lib/supabase-admin';
 
-/* ───────── helpers ───────── */
+/* helpers */
 function str(form: FormData, name: string): string | null {
   const v = form.get(name);
   if (v == null) return null;
@@ -25,7 +25,7 @@ function bool(form: FormData, name: string): boolean {
   return form.has(name) && String(form.get(name)).toLowerCase() !== 'false';
 }
 
-/* ───────── простой геокодер через Nominatim OSM ───────── */
+// простой геокодер через Nominatim OSM (без ключей)
 async function geocodeAddress(q: string): Promise<{ lat: number; lng: number } | null> {
   try {
     const url = new URL('https://nominatim.openstreetmap.org/search');
@@ -42,8 +42,7 @@ async function geocodeAddress(q: string): Promise<{ lat: number; lng: number } |
       cache: 'no-store',
     });
     if (!res.ok) return null;
-
-    const arr = (await res.json()) as any[];
+    const arr = await res.json();
     if (Array.isArray(arr) && arr[0]) {
       const lat = Number(arr[0].lat);
       const lng = Number(arr[0].lon);
@@ -55,7 +54,6 @@ async function geocodeAddress(q: string): Promise<{ lat: number; lng: number } |
   }
 }
 
-/* ───────── POST /api/listings ───────── */
 export async function POST(req: Request) {
   try {
     const { userId } = auth();
@@ -63,17 +61,16 @@ export async function POST(req: Request) {
 
     const form = await req.formData();
 
-    // основные поля
+    // --- поля формы ---
     const title = str(form, 'title') ?? 'Объявление';
-
     const city = str(form, 'city');
     const address = str(form, 'address');
     const district = str(form, 'district');
     const description = str(form, 'description');
-
     const currency = (str(form, 'currency') ?? 'RUB') as 'RUB' | 'USD' | 'EUR';
-    const price = num(form, 'price');
-    const deposit = num(form, 'deposit');
+
+    const metro = str(form, 'metro');
+    const metro_distance_min = num(form, 'metro_distance_min');
 
     const rooms = num(form, 'rooms');
     const area_total = num(form, 'area_total');
@@ -83,10 +80,9 @@ export async function POST(req: Request) {
     const floor = num(form, 'floor');
     const floors_total = num(form, 'floors_total');
 
-    const metro = str(form, 'metro');
-    const metro_distance_min = num(form, 'metro_distance_min');
+    const price = num(form, 'price');
+    const deposit = num(form, 'deposit');
 
-    // координаты (из формы или геокодер)
     let lat = num(form, 'lat');
     let lng = num(form, 'lng');
 
@@ -121,11 +117,14 @@ export async function POST(req: Request) {
 
     const tour_url = str(form, 'tour_url');
 
-    const supabase = getSupabaseServer(); // RLS
-    const admin = getSupabaseAdmin();     // storage
+    // ВАЖНО: admin-клиент используем и для БД, и для загрузок
+    // (исключаем зависимость от anon-key)
+    const admin = getSupabaseAdmin();
+    // (оставлю server-клиент на случай будущего использования)
+    const _sb = getSupabaseServer();
 
-    // 1) создаём запись
-    const { data: listingRows, error: insErr } = await supabase
+    // 1) создаём запись через admin
+    const { data: listingRows, error: insErr } = await admin
       .from('listings')
       .insert({
         owner_id: userId,
@@ -194,13 +193,10 @@ export async function POST(req: Request) {
     // 2) фото → storage → listing_photos
     const photos = form.getAll('photos') as File[];
     const uploaded: { url: string; path: string }[] = [];
-
     for (const f of photos) {
       if (!f || f.size === 0) continue;
-
       const ext = (f.name.split('.').pop() || 'jpg').toLowerCase();
       const path = `${userId}/${listingId}/${crypto.randomUUID()}.${ext}`;
-
       const up = await admin.storage.from('listings').upload(path, f, {
         contentType: f.type,
         upsert: false,
@@ -220,11 +216,11 @@ export async function POST(req: Request) {
         storage_path: u.path,
         sort_order: idx,
       }));
-      const { error: photoErr } = await supabase.from('listing_photos').insert(rows);
+      const { error: photoErr } = await admin.from('listing_photos').insert(rows);
       if (photoErr) console.error('[listing_photos] insert', photoErr);
     }
 
-    // 3) файл 3D-тура (необязательно)
+    // 3) 3D-тур (файл)
     const tourFile = form.get('tour_file') as File | null;
     if (tourFile && tourFile.size > 0) {
       const ext = (tourFile.name.split('.').pop() || 'bin').toLowerCase();
@@ -234,7 +230,7 @@ export async function POST(req: Request) {
         upsert: false,
       });
       if (!up.error) {
-        await supabase.from('listings').update({ tour_file_path: tpath }).eq('id', listingId);
+        await admin.from('listings').update({ tour_file_path: tpath }).eq('id', listingId);
       } else {
         console.error('[storage] tour upload', up.error);
       }
