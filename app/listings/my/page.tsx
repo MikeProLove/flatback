@@ -1,109 +1,131 @@
-import React from 'react';
-import { auth } from '@clerk/nextjs/server';
-import { redirect } from 'next/navigation';
-import { getSupabaseAdmin } from '@/lib/supabase-admin';
-import Actions from './Actions';
-
+// app/listings/my/page.tsx
 export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
-type Row = {
-  id: string;
-  title: string | null;
-  price: number | null;
-  city: string | null;
-  rooms: number | null;
-  area_total: number | null;
-  cover_url: string | null;
-  created_at: string;
-  status: string;
-  owner_id: string | null;
-  user_id: string | null;
-};
+import { auth } from '@clerk/nextjs/server';
+import { getSupabaseAdmin } from '@/lib/supabase-admin';
+import PublishButtons from '../_components/PublishButtons';
 
-async function getMine(userId: string) {
-  const sb = getSupabaseAdmin();
-
-  // 1) берём мои объявления с cover_url из вьюхи
-  const { data } = await sb
-    .from('listings_with_cover')
-    .select('id,title,price,city,rooms,area_total,cover_url,created_at,status,owner_id,user_id')
-    .or(`owner_id.eq.${userId},user_id.eq.${userId}`)
-    .order('created_at', { ascending: false })
-    .limit(100);
-
-  const rows = (data ?? []) as Row[];
-
-  // 2) fallback: если cover_url пуст, берём первый файл из Storage
-  const fallback = new Map<string, string>();
-  const tasks = rows
-    .filter((l) => !l.cover_url)
-    .map(async (l) => {
-      const owner = l.owner_id || l.user_id;
-      if (!owner) return;
-      const prefix = `${owner}/${l.id}`;
-      const list = await sb.storage.from('listings').list(prefix, { limit: 1 });
-      const first = list?.data?.[0];
-      if (first) {
-        const fullPath = `${prefix}/${first.name}`;
-        const pub = sb.storage.from('listings').getPublicUrl(fullPath);
-        fallback.set(l.id, pub.data.publicUrl);
-      }
-    });
-  await Promise.all(tasks);
-
-  // вернём с учётом fallback
-  return rows.map((r) => ({ ...r, cover_url: r.cover_url || fallback.get(r.id) || null }));
+function money(n?: number | null) {
+  const v = Number(n ?? 0);
+  try {
+    return new Intl.NumberFormat('ru-RU', {
+      style: 'currency',
+      currency: 'RUB',
+      maximumFractionDigits: 0,
+    }).format(v);
+  } catch {
+    return `${Math.round(v)} ₽`;
+  }
 }
 
 export default async function MyListingsPage() {
   const { userId } = auth();
-  if (!userId) redirect('/');
+  if (!userId) {
+    return (
+      <div className="mx-auto max-w-5xl px-4 py-10">
+        <h1 className="text-2xl font-semibold mb-4">Мои объявления</h1>
+        <div className="rounded-2xl border p-6 text-sm text-muted-foreground">
+          Войдите, чтобы увидеть свои объявления.
+        </div>
+      </div>
+    );
+  }
 
-  const rows = await getMine(userId);
+  const sb = getSupabaseAdmin();
+
+  // Берём из вьюхи, где уже есть cover_url. Если её нет — можно заменить на 'listings'
+  const q = sb
+    .from('listings_with_cover')
+    .select(
+      'id,title,price,city,rooms,area_total,cover_url,status,created_at,owner_id,user_id'
+    )
+    .or(`owner_id.eq.${userId},user_id.eq.${userId}`)
+    .order('created_at', { ascending: false })
+    .limit(200);
+
+  const { data, error } = await q;
+
+  const rows =
+    (data as Array<{
+      id: string;
+      title: string | null;
+      price: number | null;
+      city: string | null;
+      rooms: number | null;
+      area_total: number | null;
+      cover_url: string | null;
+      status: string | null;
+      created_at: string;
+    }>) ?? [];
 
   return (
-    <div className="mx-auto max-w-6xl px-4 py-10 space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Мои объявления</h1>
-        <a href="/listings/create" className="px-3 py-2 border rounded-md text-sm">Новое объявление</a>
-      </div>
+    <div className="mx-auto max-w-6xl px-4 py-10">
+      <h1 className="text-2xl font-semibold mb-6">Мои объявления</h1>
 
-      {rows.length === 0 ? (
+      {error ? (
+        <div className="rounded-2xl border p-6 text-sm text-red-600">
+          Ошибка загрузки списка.
+        </div>
+      ) : rows.length === 0 ? (
         <div className="rounded-2xl border p-6 text-sm text-muted-foreground">
-          У вас ещё нет объявлений. <a href="/listings/create" className="underline">Создать</a>.
+          Пока нет объявлений.{' '}
+          <a href="/listings/create" className="underline">
+            Создать объявление
+          </a>
+          .
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {rows.map((l) => (
-            <div key={l.id} className="rounded-2xl border overflow-hidden">
-              <div className="aspect-[4/3] bg-muted">
-                {l.cover_url ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={l.cover_url} alt="" className="w-full h-full object-cover" />
-                ) : null}
-              </div>
+            <div
+              key={l.id}
+              className="rounded-2xl border overflow-hidden hover:shadow transition"
+            >
+              <a href={`/listings/${l.id}`} className="block">
+                <div className="aspect-[4/3] bg-muted">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  {l.cover_url ? (
+                    <img
+                      src={l.cover_url}
+                      alt=""
+                      className="w-full h-full object-cover"
+                      loading="lazy"
+                    />
+                  ) : null}
+                </div>
+              </a>
+
               <div className="p-4 space-y-2">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="space-y-1">
-                    <a href={`/listings/${l.id}`} className="text-lg font-semibold hover:underline">
-                      {l.title ?? 'Объявление'}
-                    </a>
-                    <div className="text-sm text-muted-foreground">
-                      {l.city ?? '—'} · {l.rooms ?? '—'}к · {l.area_total ?? '—'} м²
-                    </div>
-                    <div className="text-xs">
-                      Статус:{' '}
-                      <span className={l.status === 'published' ? 'text-green-600' : 'text-yellow-600'}>
-                        {l.status}
-                      </span>
-                    </div>
-                  </div>
-                  <div className="text-right font-semibold">
-                    {(l.price ?? 0).toLocaleString('ru-RU')} ₽
-                  </div>
+                <a
+                  href={`/listings/${l.id}`}
+                  className="text-lg font-semibold hover:underline line-clamp-1"
+                >
+                  {l.title ?? 'Объявление'}
+                </a>
+                <div className="text-sm text-muted-foreground">
+                  {l.city ?? '—'} · {l.rooms ?? '—'}к · {l.area_total ?? '—'} м²
                 </div>
 
-                <Actions id={l.id} status={l.status} />
+                <div className="flex items-center justify-between">
+                  <div className="text-base font-semibold">
+                    {money(l.price)}
+                  </div>
+                  <PublishButtons id={l.id} status={l.status ?? undefined} />
+                </div>
+
+                <div className="text-xs">
+                  Статус:{' '}
+                  <span
+                    className={
+                      (l.status ?? '') === 'published'
+                        ? 'text-green-600'
+                        : 'text-yellow-700'
+                    }
+                  >
+                    {l.status ?? '—'}
+                  </span>
+                </div>
               </div>
             </div>
           ))}
