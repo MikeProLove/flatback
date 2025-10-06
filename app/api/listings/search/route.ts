@@ -3,7 +3,7 @@ export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
 import { NextResponse } from 'next/server';
-import { getSupabaseServer } from '@/lib/supabase-server';
+import { getSupabaseAdmin } from '@/lib/supabase-admin'; // ← было getSupabaseServer
 
 function toNum(v: string | null, d?: number) {
   const n = v == null ? NaN : Number(v);
@@ -14,7 +14,7 @@ export async function GET(req: Request) {
   try {
     const url = new URL(req.url);
     const sp = url.searchParams;
-    const sb = getSupabaseServer();
+    const sb = getSupabaseAdmin(); // ← админ-клиент, чтобы карта видела публичные объявления
 
     const page = Math.max(1, toNum(sp.get('page'), 1)!);
     const perPage = Math.min(500, Math.max(1, toNum(sp.get('per_page'), 100)!));
@@ -50,8 +50,7 @@ export async function GET(req: Request) {
 
     if (sp.get('with_photo') === 'on') q = q.not('cover_url', 'is', null);
 
-    // bbox= south,west,north,east
-    const bbox = sp.get('bbox');
+    const bbox = sp.get('bbox'); // south,west,north,east
     if (bbox) {
       const [south, west, north, east] = bbox.split(',').map((s) => Number(s));
       if ([south, west, north, east].every((n) => Number.isFinite(n))) {
@@ -68,10 +67,7 @@ export async function GET(req: Request) {
     q = q.range(from, to);
 
     const { data, error, count } = await q;
-
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
-    }
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
     return NextResponse.json({
       rows: data ?? [],
