@@ -135,31 +135,38 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     }
 
     // --- загрузка новых фото new_photos[]
-    const files = form.getAll('new_photos') as File[];
-    if (files?.length) {
-      let startOrder = 0;
-      const { data: last } = await sb
-        .from('listing_photos')
-        .select('sort_order')
-        .eq('listing_id', params.id)
-        .order('sort_order', { ascending: false })
-        .limit(1);
-      if (last?.[0]?.sort_order != null) startOrder = last[0].sort_order + 1;
-
-      const rowsToInsert: any[] = [];
-      for (const [i, f] of files.entries()) {
-        if (!f || f.size === 0) continue;
-        const ext = (f.name.split('.').pop() || 'jpg').toLowerCase();
-        const path = `${ownerId}/${params.id}/${crypto.randomUUID()}.${ext}`;
-        const up = await sb.storage.from('listings').upload(path, f, {
-          contentType: f.type || 'image/jpeg',
-          upsert: false,
-        });
-        if (up.error) continue;
-        const pub = sb.storage.from('listings').getPublicUrl(path);
-        rowsToInsert.push({ listing_id: params.id, url: pub.data.publicUrl, storage_path: path, sort_order: startOrder + i });
+    // 2) фото — загружаем через admin (обходит RLS)
+    const files = form.getAll('photos') as File[];
+    const rowsToInsert: { listing_id: string; url: string; storage_path: string; sort_order: number }[] = [];
+    
+    for (let i = 0; i < files.length; i++) {
+      const f = files[i];
+      if (!f || f.size === 0) continue;
+    
+      const ext = (f.name.split('.').pop() || 'jpg').toLowerCase();
+      const path = `${ownerId}/${params.id}/${crypto.randomUUID()}.${ext}`;
+    
+      const up = await admin.storage.from('listings').upload(path, f, {
+        contentType: f.type,
+        upsert: false,
+      });
+      if (up.error) {
+        console.error('[storage] photo upload', up.error);
+        continue;
       }
-      if (rowsToInsert.length) await sb.from('listing_photos').insert(rowsToInsert);
+    
+      const pub = admin.storage.from('listings').getPublicUrl(path);
+      rowsToInsert.push({
+        listing_id: params.id,
+        url: pub.data.publicUrl,
+        storage_path: path,
+        sort_order: i,
+      });
+    }
+    
+    if (rowsToInsert.length) {
+      const { error: photoErr } = await sb.from('listing_photos').insert(rowsToInsert);
+      if (photoErr) console.error('[listing_photos] insert', photoErr);
     }
 
     // --- 3D-тур: удалить/перезалить/изменить ссылку
