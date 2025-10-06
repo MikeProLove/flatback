@@ -2,13 +2,15 @@
 
 import dynamic from 'next/dynamic';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import LeafletSetup from './LeafletSetup';
+import LeafletSetup from './LeafletSetup'; // ← вот это важно
 
 const Map = dynamic(() => import('react-leaflet').then(m => m.MapContainer), { ssr: false });
 const TileLayer = dynamic(() => import('react-leaflet').then(m => m.TileLayer), { ssr: false });
 const Marker = dynamic(() => import('react-leaflet').then(m => m.Marker), { ssr: false });
 const Popup = dynamic(() => import('react-leaflet').then(m => m.Popup), { ssr: false });
 const Circle = dynamic(() => import('react-leaflet').then(m => m.Circle), { ssr: false });
+
+// ...и дальше твой код страницы (мы ранее присылали полный файл)
 
 type Row = {
   id: string;
