@@ -9,6 +9,9 @@ import {
 } from '@clerk/nextjs';
 import Link from 'next/link';
 import './globals.css';
+// app/layout.tsx
+import './globals.css';
+import 'maplibre-gl/dist/maplibre-gl.css'; // ← ДОБАВЬ ЭТУ СТРОКУ
 
 export const metadata: Metadata = {
   title: 'Flatback',
