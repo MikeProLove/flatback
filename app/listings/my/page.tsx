@@ -5,6 +5,7 @@ export const revalidate = 0;
 import { auth } from '@clerk/nextjs/server';
 import { getSupabaseAdmin } from '@/lib/supabase-admin';
 import PublishButtons from '../_components/PublishButtons';
+import Link from 'next/link';
 
 type Row = {
   id: string;
