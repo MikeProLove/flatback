@@ -7,112 +7,79 @@ import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { getSupabaseAdmin } from '@/lib/supabase-admin';
 
-async function detectRenterColumn(sb: ReturnType<typeof getSupabaseAdmin>) {
-  const { data, error } = await sb
-    .from('information_schema.columns')
-    .select('column_name')
-    .eq('table_schema', 'public')
-    .eq('table_name', 'bookings');
-
-  if (error) return null;
-  const names = new Set((data ?? []).map((r: any) => r.column_name as string));
-  const candidates = [
-    'renter_id',
-    'user_id',
-    'created_by',
-    'created_by_user_id',
-    'author_id',
-    'applicant_id',
-    'client_id',
-  ];
-  for (const c of candidates) if (names.has(c)) return c;
-  return null;
-}
-
 export async function GET() {
-  const { userId } = auth();
-  if (!userId) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+  try {
+    const { userId } = auth();
+    if (!userId) return new NextResponse('Unauthorized', { status: 401 });
 
-  const sb = getSupabaseAdmin();
+    const sb = getSupabaseAdmin();
 
-  // 1) мои объявления
-  const L = await sb
-    .from('listings')
-    .select('id, owner_id, user_id, title, city')
-    .or(`owner_id.eq.${userId},user_id.eq.${userId}`);
+    // 1) какие объявления мои
+    const { data: myListings } = await sb
+      .from('listings')
+      .select('id,title,city')
+      .or(`owner_id.eq.${userId},user_id.eq.${userId}`);
 
-  if (L.error) return NextResponse.json({ error: 'db_error', message: L.error.message }, { status: 500 });
+    const ids = (myListings ?? []).map(l => l.id);
+    if (!ids.length) return NextResponse.json({ rows: [] });
 
-  const listings = (L.data ?? []) as any[];
-  const myIds = listings.map((l) => l.id);
-  if (!myIds.length) return NextResponse.json({ rows: [] });
+    // 2) заявки на эти объявления
+    const { data: bookings, error } = await sb
+      .from('bookings')
+      .select('id,status,payment_status,start_date,end_date,monthly_price,deposit,created_at,listing_id,renter_id')
+      .in('listing_id', ids)
+      .order('created_at', { ascending: false });
 
-  const listingInfo: Record<string, { title: string | null; city: string | null }> = {};
-  listings.forEach((l) => (listingInfo[l.id] = { title: l.title ?? null, city: l.city ?? null }));
-
-  // 2) заявки по моим объявлениям
-  const B = await sb.from('bookings').select('*').in('listing_id', myIds).order('created_at', { ascending: false });
-  if (B.error) return NextResponse.json({ error: 'db_error', message: B.error.message }, { status: 500 });
-  const bookings = (B.data ?? []) as any[];
-
-  // 3) какая колонка — арендатор
-  const renterCol = await detectRenterColumn(sb);
-
-  // 4) обложки
-  const covers: Record<string, string> = {};
-  const P = await sb
-    .from('listing_photos')
-    .select('listing_id, url, sort_order')
-    .in('listing_id', myIds)
-    .order('sort_order', { ascending: true });
-  if (!P.error) {
-    for (const p of (P.data ?? []) as any[]) {
-      const lid = p.listing_id as string;
-      if (covers[lid] === undefined && p.url) covers[lid] = p.url as string;
+    if (error) {
+      return NextResponse.json({ error: 'db_error', message: error.message }, { status: 500 });
     }
-  }
 
-  // 5) существующие чаты (владелец — я)
-  const C = await sb
-    .from('chats')
-    .select('id, listing_id, owner_id, participant_id')
-    .eq('owner_id', userId)
-    .in('listing_id', myIds);
+    // 3) обложки
+    let covers = new Map<string, string>();
+    const { data: photos } = await sb
+      .from('listing_photos')
+      .select('listing_id,url,sort_order')
+      .in('listing_id', ids)
+      .order('sort_order', { ascending: true });
 
-  const chatMap = new Map<string, string>(); // `${listing_id}|${participant_id}` -> chat_id
-  if (!C.error) {
-    for (const ch of (C.data ?? []) as any[]) {
-      chatMap.set(`${ch.listing_id}|${ch.participant_id}`, ch.id);
-    }
-  }
+    (photos ?? []).forEach(p => {
+      if (!covers.has(p.listing_id)) covers.set(p.listing_id, p.url || '');
+    });
 
-  // 6) ответ
-  const rows = bookings.map((b) => {
-    const lid = b.listing_id as string | null;
-    const info = lid ? listingInfo[lid] : null;
+    // 4) уже созданные чаты между мной (владельцем) и арендаторами
+    const { data: chats } = await sb
+      .from('chats')
+      .select('id,listing_id,owner_id,participant_id')
+      .in('listing_id', ids);
 
-    // определяем ID арендатора из подходящей колонки
-    const renterId: string | null = renterCol ? (b[renterCol] as string | null) ?? null : null;
+    // key: listing_id + renter_id → chat_id
+    const chatKey = (lid: string, rid: string) => `${lid}::${rid}`;
+    const chatMap = new Map<string, string>();
+    (chats ?? []).forEach(c => {
+      if (c.owner_id === userId) chatMap.set(chatKey(c.listing_id, c.participant_id), c.id);
+    });
 
-    const chatId = renterId && lid ? chatMap.get(`${lid}|${renterId}`) ?? null : null;
+    const meta = new Map(myListings!.map(l => [l.id, l]));
 
-    return {
+    const rows = (bookings ?? []).map(b => ({
       id: b.id,
-      created_at: b.created_at,
       status: b.status,
       payment_status: b.payment_status,
       start_date: b.start_date,
       end_date: b.end_date,
-      monthly_price: b.monthly_price ?? b.price ?? 0,
-      deposit: b.deposit ?? null,
-      listing_id: lid,
-      listing_title: info?.title ?? null,
-      listing_city: info?.city ?? null,
-      cover_url: lid ? (covers[lid] ?? null) : null,
-      renter_id_for_chat: renterId,
-      chat_id: chatId,
-    };
-  });
+      monthly_price: b.monthly_price,
+      deposit: b.deposit,
+      created_at: b.created_at,
+      listing_id: b.listing_id,
+      listing_title: b.listing_id ? meta.get(b.listing_id)?.title ?? null : null,
+      listing_city: b.listing_id ? meta.get(b.listing_id)?.city ?? null : null,
+      cover_url: b.listing_id ? (covers.get(b.listing_id) || null) : null,
+      renter_id_for_chat: b.renter_id,         // ← с кем открыть чат
+      chat_id: b.listing_id && b.renter_id ? (chatMap.get(chatKey(b.listing_id, b.renter_id)) || null) : null,
+    }));
 
-  return NextResponse.json({ rows });
+    return NextResponse.json({ rows });
+  } catch (e: any) {
+    return NextResponse.json({ error: 'server_error', message: e?.message || 'internal' }, { status: 500 });
+  }
 }
