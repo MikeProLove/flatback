@@ -5,33 +5,25 @@ import OpenChatButton from '@/app/(components)/OpenChatButton';
 
 type Row = {
   id: string;
-  status: 'pending' | 'approved' | 'declined' | 'cancelled';
-  payment_status: 'pending' | 'paid' | 'refunded';
+  status: 'pending'|'approved'|'declined'|'cancelled';
+  payment_status: 'pending'|'paid'|'refunded';
   start_date: string | null;
   end_date: string | null;
   monthly_price: number;
   deposit: number | null;
   created_at: string;
-
   listing_id: string | null;
   listing_title: string | null;
   listing_city: string | null;
   cover_url: string | null;
-
-  // арендатор — с ним открываем чат
-  renter_id_for_chat: string | null;
-
-  // если чат уже есть
+  renter_id_for_chat: string | null; // <-- нужен для собеседника
   chat_id: string | null;
 };
 
 function money(n?: number | null) {
   const v = Number(n ?? 0);
-  try {
-    return new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', maximumFractionDigits: 0 }).format(v);
-  } catch {
-    return `${Math.round(v)} ₽`;
-  }
+  try { return new Intl.NumberFormat('ru-RU',{style:'currency',currency:'RUB',maximumFractionDigits:0}).format(v); }
+  catch { return `${Math.round(v)} ₽`; }
 }
 const safeDate = (d: any) => {
   const dt = new Date(String(d));
@@ -45,9 +37,11 @@ export default function OwnerRequestsPage() {
   useEffect(() => {
     (async () => {
       try {
+        setErr(null);
         const r = await fetch('/api/requests/incoming', { cache: 'no-store' });
-        const j = await r.json();
-        if (!r.ok) throw new Error(j?.message || j?.error || 'load_failed');
+        const ct = r.headers.get('content-type') || '';
+        const j = ct.includes('application/json') ? await r.json() : { error: await r.text() };
+        if (!r.ok) throw new Error(j?.message || j?.error || `HTTP ${r.status}`);
         setRows(j.rows ?? []);
       } catch (e: any) {
         setErr(e?.message || 'Ошибка загрузки');
@@ -61,9 +55,12 @@ export default function OwnerRequestsPage() {
       <h1 className="text-2xl font-semibold">Заявки на мои</h1>
 
       {err && <div className="rounded-2xl border p-6 text-sm text-red-600">Ошибка: {String(err)}</div>}
-      {rows === null && <div className="rounded-2xl border p-6 text-sm text-muted-foreground">Загружаем…</div>}
 
-      {Array.isArray(rows) && rows.length > 0 && (
+      {rows === null ? (
+        <div className="rounded-2xl border p-6 text-sm text-muted-foreground">Загружаем…</div>
+      ) : rows.length === 0 ? (
+        <div className="rounded-2xl border p-6 text-sm text-muted-foreground">Заявок пока нет.</div>
+      ) : (
         <div className="space-y-4">
           {rows.map((r) => (
             <div key={r.id} className="rounded-2xl border overflow-hidden">
@@ -82,51 +79,32 @@ export default function OwnerRequestsPage() {
                         {r.listing_title ?? 'Объявление'}
                       </a>
                       <div className="text-sm text-muted-foreground">{r.listing_city ?? '—'}</div>
-                      <div className="text-xs">
-                        {safeDate(r.start_date)} — {safeDate(r.end_date)}
-                      </div>
+                      <div className="text-xs">{safeDate(r.start_date)} — {safeDate(r.end_date)}</div>
                     </div>
 
                     <div className="text-right text-sm">
                       <div className="font-semibold">{money(r.monthly_price)} / мес</div>
                       {r.deposit ? <div className="text-muted-foreground">Залог: {money(r.deposit)}</div> : null}
                       <div className="text-xs">
-                        <span
-                          className={
-                            r.status === 'approved'
-                              ? 'text-green-600'
-                              : r.status === 'declined'
-                              ? 'text-red-600'
-                              : r.status === 'cancelled'
-                              ? 'text-gray-500'
-                              : 'text-yellow-600'
-                          }
-                        >
-                          {r.status}
-                        </span>
-                        {' · '}
-                        <span
-                          className={
-                            r.payment_status === 'paid'
-                              ? 'text-green-600'
-                              : r.payment_status === 'refunded'
-                              ? 'text-gray-600'
-                              : 'text-yellow-600'
-                          }
-                        >
-                          {r.payment_status}
-                        </span>
+                        <span className={
+                          r.status === 'approved' ? 'text-green-600' :
+                          r.status === 'declined' ? 'text-red-600' :
+                          r.status === 'cancelled' ? 'text-gray-500' : 'text-yellow-600'
+                        }>{r.status}</span>{' · '}
+                        <span className={
+                          r.payment_status === 'paid' ? 'text-green-600' :
+                          r.payment_status === 'refunded' ? 'text-gray-600' : 'text-yellow-600'
+                        }>{r.payment_status}</span>
                       </div>
                     </div>
                   </div>
 
                   <div className="pt-2 flex flex-wrap gap-8 items-center">
                     {r.chat_id ? (
-                      // ВАЖНО: путь /chat/
                       <a href={`/chat/${r.chat_id}`} className="px-3 py-1 border rounded-md text-sm">
                         Открыть чат
                       </a>
-                    ) : r.listing_id && r.renter_id_for_chat ? (
+                    ) : (r.listing_id && r.renter_id_for_chat) ? (
                       <OpenChatButton
                         listingId={r.listing_id}
                         otherUserId={r.renter_id_for_chat}
@@ -139,10 +117,6 @@ export default function OwnerRequestsPage() {
             </div>
           ))}
         </div>
-      )}
-
-      {Array.isArray(rows) && rows.length === 0 && (
-        <div className="rounded-2xl border p-6 text-sm text-muted-foreground">Заявок пока нет.</div>
       )}
     </div>
   );
