@@ -10,6 +10,7 @@ import StartChatButton from './ui/StartChatButton';
 import BookWidget from './ui/BookWidget';
 import Amenities from './ui/Amenities';
 import PhotoLightbox from './ui/PhotoLightbox';
+import ChatOpenButton from './ui/ChatOpenButton';
 
 type ListingRow = {
   id: string;
@@ -220,15 +221,20 @@ export default async function ListingPage({ params }: { params: { id: string } }
             </div>
           ) : null}
 
-          {/* Виджет брони/заявки */}
-          {!isOwner ? (
-            <div className="rounded-2xl border p-4">
-              <BookWidget
-                listingId={listing.id}
-                price={Number(listing.price) || 0}
-                deposit={typeof listing.deposit === 'number' ? listing.deposit : null}
-              />
-            </div>
+          <div className="mt-6 space-y-3">
+                {!isOwner && (
+                  <ChatOpenButton
+                    ownerId={(listing.owner_id || listing.user_id)!}
+                    listingId={listing.id}
+                  />
+                )}
+              
+                <BookWidget
+                  listingId={listing.id}
+                  price={Number(listing.price) || 0}
+                  deposit={typeof listing.deposit === 'number' ? listing.deposit : null}
+                />
+              </div>
           ) : null}
         </div>
       </div>
