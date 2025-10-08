@@ -7,11 +7,11 @@ import {
   SignUpButton,
   UserButton,
 } from '@clerk/nextjs';
-import Link from 'next/link';
+
 import './globals.css';
-// app/layout.tsx
-import './globals.css';
-import 'maplibre-gl/dist/maplibre-gl.css'; // ← ДОБАВЬ ЭТУ СТРОКУ
+import 'maplibre-gl/dist/maplibre-gl.css';
+
+import MainNav from './(components)/MainNav';
 
 export const metadata: Metadata = {
   title: 'Flatback',
@@ -24,22 +24,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <html lang="ru">
         <body>
           <header className="flex items-center gap-4 px-4 py-3 border-b">
-            {/* ОДИН nav c Link. Никаких вторых nav и <a> дубликатов */}
-            <nav className="flex flex-wrap gap-4 text-sm">
-              <Link href="/">Flatback</Link>
-              <Link href="/catalog/products">Товары</Link>
-              <Link href="/catalog/services">Услуги</Link>
-              <Link href="/orders">Заказы</Link>
-              <Link href="/orders/create">Новый заказ</Link>
-
-              <Link href="/listings">Объявления</Link>
-              <Link href="/listings/create">Новое объявление</Link>
-              <Link href="/listings/my">Мои объявления</Link>
-              <Link href="/requests">Мои заявки</Link>
-              <Link href="/requests/incoming">Заявки на мои</Link>
-              <Link href="/favorites">Избранное</Link>
-              <Link href="/chat">Чаты</Link>
-            </nav>
+            <MainNav />
 
             <div className="ml-auto flex items-center gap-3">
               <SignedOut>
@@ -63,4 +48,3 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     </ClerkProvider>
   );
 }
-
