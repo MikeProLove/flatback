@@ -10,6 +10,7 @@ import BookWidget from './ui/BookWidget';
 import Amenities from './ui/Amenities';
 import PhotoLightbox from './ui/PhotoLightbox';
 import ChatOpenButton from './ui/ChatOpenButton';
+import ChatOpenButton from './ui/ChatOpenButton';
 
 type ListingRow = {
   id: string;
@@ -209,7 +210,7 @@ export default async function ListingPage({ params }: { params: { id: string } }
 
         {/* Правая колонка */}
         <div className="space-y-4">
-          {/* Кнопка чата — видят только не-владельцы */}
+          {/* Кнопка чата: показываем только не-владельцу */}
           {!isOwner && userId ? (
             <div className="rounded-2xl border p-4">
               <ChatOpenButton
