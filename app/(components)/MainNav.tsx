@@ -2,7 +2,6 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import clsx from 'clsx';
 
 const items = [
   { href: '/catalog/products', label: 'Товары' },
@@ -21,26 +20,27 @@ const items = [
 export default function MainNav() {
   const pathname = usePathname() || '/';
 
+  const isActive = (href: string) =>
+    pathname === href || pathname.startsWith(href + '/');
+
   return (
     <nav className="flex flex-wrap gap-4 text-sm">
       <Link href="/">Flatback</Link>
-      {items.map(i => {
-        const active = pathname === i.href || pathname.startsWith(i.href + '/');
-        return (
-          <Link
-            key={i.href}
-            href={i.href}
-            className={clsx(
-              'px-1',
-              active
-                ? 'text-foreground font-semibold border-b-2 border-foreground'
-                : 'text-muted-foreground hover:text-foreground'
-            )}
-          >
-            {i.label}
-          </Link>
-        );
-      })}
+
+      {items.map((i) => (
+        <Link
+          key={i.href}
+          href={i.href}
+          className={
+            'px-1 ' +
+            (isActive(i.href)
+              ? 'text-foreground font-semibold border-b-2 border-foreground'
+              : 'text-muted-foreground hover:text-foreground')
+          }
+        >
+          {i.label}
+        </Link>
+      ))}
     </nav>
   );
 }
