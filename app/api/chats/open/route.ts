@@ -10,56 +10,58 @@ import { getSupabaseAdmin } from '@/lib/supabase-admin';
 export async function POST(req: Request) {
   try {
     const { userId } = auth();
-    if (!userId) return new NextResponse('Unauthorized', { status: 401 });
+    if (!userId) {
+      return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+    }
 
-    const { ownerId, listingId } = await req.json();
-    if (!ownerId || !listingId) {
-      return NextResponse.json({ error: 'bad_request' }, { status: 400 });
+    const { listingId, ownerId } = await req.json().catch(() => ({}));
+    if (!ownerId) {
+      return NextResponse.json({ error: 'bad_request', message: 'ownerId required' }, { status: 400 });
     }
     if (ownerId === userId) {
-      return NextResponse.json({ error: 'self_chat_forbidden' }, { status: 400 });
+      return NextResponse.json({ error: 'bad_request', message: 'self_chat' }, { status: 400 });
     }
 
     const sb = getSupabaseAdmin();
 
-    // ищем существующий чат между этими двумя участниками для этого объявления
-    const { data: found } = await sb
-      .rpc('find_chat_between', {
-        p_listing_id: listingId,
-        p_user_a: userId,
-        p_user_b: ownerId,
-      }); // функцию создадим ниже SQL-скриптом (см. комментарий)
+    // Ищем чат между двумя участниками по конкретному объявлению (или без него)
+    const { data: existing } = await sb
+      .from('chats')
+      .select('id')
+      .eq('owner_id', ownerId)
+      .eq('participant_id', userId)
+      .eq('listing_id', listingId ?? null)
+      .maybeSingle();
 
-    let chatId: string | null = (found && found[0]?.id) || null;
-
-    if (!chatId) {
-      // 1) создаём чат
-      const { data: created, error: cErr } = await sb
-        .from('chats')
-        .insert({ listing_id: listingId, created_by: userId })
-        .select('id')
-        .limit(1)
-        .maybeSingle();
-      if (cErr || !created) {
-        console.error('[chat] create', cErr);
-        return NextResponse.json({ error: 'create_failed' }, { status: 500 });
-      }
-      chatId = created.id;
-
-      // 2) добавляем обоих участников
-      const { error: mErr } = await sb.from('chat_members').insert([
-        { chat_id: chatId, user_id: userId },
-        { chat_id: chatId, user_id: ownerId },
-      ]);
-      if (mErr) {
-        console.error('[chat_members] insert', mErr);
-        return NextResponse.json({ error: 'members_failed' }, { status: 500 });
-      }
+    if (existing) {
+      return NextResponse.json({ id: existing.id });
     }
 
-    return NextResponse.json({ id: chatId });
-  } catch (e) {
-    console.error('[chats/open] error', e);
-    return new NextResponse('Internal error', { status: 500 });
+    // Пробуем в обратном порядке на случай старых записей
+    const { data: existing2 } = await sb
+      .from('chats')
+      .select('id')
+      .eq('owner_id', userId)
+      .eq('participant_id', ownerId)
+      .eq('listing_id', listingId ?? null)
+      .maybeSingle();
+
+    if (existing2) {
+      return NextResponse.json({ id: existing2.id });
+    }
+
+    const insert = await sb
+      .from('chats')
+      .insert({ owner_id: ownerId, participant_id: userId, listing_id: listingId ?? null })
+      .select('id')
+      .single();
+
+    if (insert.error || !insert.data) {
+      return NextResponse.json({ error: 'db_error', message: insert.error?.message }, { status: 500 });
+    }
+
+    return NextResponse.json({ id: insert.data.id });
+  } catch (e: any) {
+    return NextResponse.json({ error: 'internal', message: e?.message }, { status: 500 });
   }
 }
