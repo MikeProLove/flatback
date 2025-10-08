@@ -1,3 +1,4 @@
+// app/api/chats/[id]/messages/route.ts
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -7,53 +8,58 @@ import { auth } from '@clerk/nextjs/server';
 import { getSupabaseAdmin } from '@/lib/supabase-admin';
 
 async function assertMember(sb: ReturnType<typeof getSupabaseAdmin>, chatId: string, userId: string) {
-  const { data } = await sb
-    .from('chat_members')
-    .select('chat_id')
-    .eq('chat_id', chatId)
-    .eq('user_id', userId)
+  const { data, error } = await sb
+    .from('chats')
+    .select('id, owner_id, participant_id')
+    .eq('id', chatId)
     .maybeSingle();
-  return !!data;
+
+  if (error) return { ok: false as const, status: 500, reason: 'db_error' as const };
+  if (!data) return { ok: false as const, status: 404, reason: 'not_found' as const };
+  if (data.owner_id !== userId && data.participant_id !== userId) {
+    return { ok: false as const, status: 403, reason: 'forbidden' as const };
+  }
+  return { ok: true as const };
 }
 
 export async function GET(_: Request, { params }: { params: { id: string } }) {
   const { userId } = auth();
-  if (!userId) return new NextResponse('Unauthorized', { status: 401 });
+  if (!userId) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
 
   const sb = getSupabaseAdmin();
-  const isMember = await assertMember(sb, params.id, userId);
-  if (!isMember) return new NextResponse('Forbidden', { status: 403 });
+  const check = await assertMember(sb, params.id, userId);
+  if (!check.ok) return NextResponse.json({ error: check.reason }, { status: check.status });
 
   const { data, error } = await sb
     .from('chat_messages')
-    .select('id, user_id, body, created_at')
+    .select('id, created_at, sender_id, body')
     .eq('chat_id', params.id)
-    .order('created_at', { ascending: true })
-    .limit(500);
+    .order('created_at', { ascending: true });
 
-  if (error) return NextResponse.json({ error: 'db_error' }, { status: 500 });
+  if (error) return NextResponse.json({ error: 'db_error', message: error.message }, { status: 500 });
   return NextResponse.json({ messages: data ?? [] });
 }
 
 export async function POST(req: Request, { params }: { params: { id: string } }) {
   const { userId } = auth();
-  if (!userId) return new NextResponse('Unauthorized', { status: 401 });
-
-  const { body } = await req.json().catch(() => ({}));
-  if (!body || typeof body !== 'string') {
-    return NextResponse.json({ error: 'bad_request' }, { status: 400 });
-  }
+  if (!userId) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
 
   const sb = getSupabaseAdmin();
-  const isMember = await assertMember(sb, params.id, userId);
-  if (!isMember) return new NextResponse('Forbidden', { status: 403 });
+  const check = await assertMember(sb, params.id, userId);
+  if (!check.ok) return NextResponse.json({ error: check.reason }, { status: check.status });
 
-  const { data, error } = await sb
+  const { body } = await req.json().catch(() => ({}));
+  const text = typeof body === 'string' ? body.trim() : '';
+  if (!text) return NextResponse.json({ error: 'bad_request', message: 'empty' }, { status: 400 });
+
+  const ins = await sb
     .from('chat_messages')
-    .insert({ chat_id: params.id, user_id: userId, body })
-    .select('id, user_id, body, created_at')
-    .limit(1);
+    .insert({ chat_id: params.id, sender_id: userId, body: text })
+    .select('id, created_at, sender_id, body')
+    .single();
 
-  if (error || !data?.[0]) return NextResponse.json({ error: 'insert_failed' }, { status: 500 });
-  return NextResponse.json({ message: data[0] });
+  if (ins.error || !ins.data) {
+    return NextResponse.json({ error: 'db_error', message: ins.error?.message }, { status: 500 });
+  }
+  return NextResponse.json({ message: ins.data });
 }
