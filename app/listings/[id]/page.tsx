@@ -79,7 +79,7 @@ export default async function ListingPage({ params }: { params: { id: string } }
   const { userId } = auth();
   const sb = getSupabaseAdmin();
 
-  // 1) объявление
+  // 1) Объявление
   const { data: listing, error } = await sb
     .from('listings')
     .select(
@@ -126,7 +126,7 @@ export default async function ListingPage({ params }: { params: { id: string } }
 
   if (error || !listing) notFound();
 
-  // 2) фото
+  // 2) Фото
   const { data: photosRaw } = await sb
     .from('listing_photos')
     .select('id,url,storage_path,sort_order')
@@ -134,12 +134,10 @@ export default async function ListingPage({ params }: { params: { id: string } }
     .order('sort_order', { ascending: true });
 
   const photos = (photosRaw ?? []) as PhotoRow[];
-  const images: string[] = photos
-    .map((p) => p.url)
-    .filter((u): u is string => !!u);
+  const images: string[] = photos.map((p) => p.url).filter((u): u is string => !!u);
   const cover = images[0] ?? null;
 
-  // 3) избранное этого пользователя
+  // 3) Избранное пользователя
   let isFavorite = false;
   if (userId) {
     const fav = await sb
@@ -151,6 +149,7 @@ export default async function ListingPage({ params }: { params: { id: string } }
     isFavorite = !!fav.data;
   }
 
+  // 4) Является ли текущий пользователь владельцем
   const isOwner =
     !!userId && (listing.owner_id === userId || (!listing.owner_id && listing.user_id === userId));
 
@@ -165,7 +164,7 @@ export default async function ListingPage({ params }: { params: { id: string } }
           </div>
         </div>
 
-        {/* Избранное — доступно всем, кто вошёл */}
+        {/* Избранное — только для вошедших */}
         {userId ? <FavoriteToggle listingId={listing.id} initial={isFavorite} /> : null}
       </div>
 
@@ -178,7 +177,7 @@ export default async function ListingPage({ params }: { params: { id: string } }
         </div>
       )}
 
-      {/* Основные факты */}
+      {/* Контент */}
       <div className="grid grid-cols-1 md:grid-cols-[1.2fr_.8fr] gap-6">
         {/* Левая колонка */}
         <div className="space-y-4">
@@ -198,9 +197,7 @@ export default async function ListingPage({ params }: { params: { id: string } }
           </div>
 
           {listing.description ? (
-            <div className="rounded-2xl border p-4 whitespace-pre-wrap">
-              {listing.description}
-            </div>
+            <div className="rounded-2xl border p-4 whitespace-pre-wrap">{listing.description}</div>
           ) : null}
 
           {/* Удобства */}
@@ -208,22 +205,18 @@ export default async function ListingPage({ params }: { params: { id: string } }
         </div>
 
         {/* Правая колонка */}
-        <div className="mt-6 space-y-3">
-  {!isOwner && (
-    <ChatOpenButton
-      ownerId={(listing.owner_id || listing.user_id)!}
-      listingId={listing.id}
-    />
-  )}
+        <div className="space-y-4">
+          {/* Кнопка чата — только не владельцу */}
+          {!isOwner && userId ? (
+            <div className="rounded-2xl border p-4">
+              <ChatOpenButton
+                ownerId={(listing.owner_id || listing.user_id)!}
+                listingId={listing.id}
+              />
+            </div>
+          ) : null}
 
-  <BookWidget
-    listingId={listing.id}
-    price={Number(listing.price) || 0}
-    deposit={typeof listing.deposit === 'number' ? listing.deposit : null}
-  />
-</div>
-
-          {/* Бронирование — можно оставить всем, либо тоже скрывать владельцу */}
+          {/* Бронирование */}
           <div className="rounded-2xl border p-4">
             <BookWidget
               listingId={listing.id}
