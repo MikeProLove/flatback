@@ -13,49 +13,74 @@ export async function GET() {
 
   const sb = getSupabaseAdmin();
 
-  // 1) сами чаты + заголовок объявления
-  const { data: chats, error } = await sb
+  // 1) забираем чаты пользователя (без join'ов — максимально совместимо)
+  const chatsRes = await sb
     .from('chats')
-    .select(`
-      id,
-      created_at,
-      listing_id,
-      owner_id,
-      participant_id,
-      last_message_at,
-      last_message_preview,
-      listing:listings(id,title,city)
-    `)
+    .select('id, created_at, listing_id, owner_id, participant_id, last_message_at, last_message_preview')
     .or(`owner_id.eq.${userId},participant_id.eq.${userId}`)
     .order('last_message_at', { ascending: false, nullsFirst: false })
     .order('created_at', { ascending: false });
 
-  if (error) return NextResponse.json({ error: 'db_error', message: error.message }, { status: 500 });
+  if (chatsRes.error) {
+    return NextResponse.json({ error: 'db_error', message: chatsRes.error.message }, { status: 500 });
+  }
+  const chats = (chatsRes.data ?? []) as any[];
 
-  // 2) подтянем обложки для объявлений, чтобы было красиво
-  const listingIds = [...new Set((chats ?? []).map(c => c.listing_id).filter(Boolean))] as string[];
-  let covers = new Map<string, string>();
-  if (listingIds.length) {
-    const { data: photos } = await sb
+  // 2) собираем уникальные listing_id без Set/спреда
+  const listingIds: string[] = [];
+  for (let i = 0; i < chats.length; i++) {
+    const lid = chats[i]?.listing_id as string | null;
+    if (lid && listingIds.indexOf(lid) === -1) listingIds.push(lid);
+  }
+
+  // 3) подтянем заголовки/города объявлений
+  const listingMap: Record<string, { id: string; title: string | null; city: string | null }> = {};
+  if (listingIds.length > 0) {
+    const listingsRes = await sb
+      .from('listings')
+      .select('id, title, city')
+      .in('id', listingIds);
+    const listings = (listingsRes.data ?? []) as any[];
+    for (let i = 0; i < listings.length; i++) {
+      const l = listings[i];
+      listingMap[l.id] = { id: l.id, title: l.title ?? null, city: l.city ?? null };
+    }
+  }
+
+  // 4) обложки (первая фотка по sort_order)
+  const covers: Record<string, string> = {};
+  if (listingIds.length > 0) {
+    const photosRes = await sb
       .from('listing_photos')
       .select('listing_id, url, sort_order')
       .in('listing_id', listingIds)
       .order('sort_order', { ascending: true });
-    for (const p of photos ?? []) {
-      if (!covers.has(p.listing_id)) covers.set(p.listing_id, p.url as string);
+
+    const photos = (photosRes.data ?? []) as any[];
+    for (let i = 0; i < photos.length; i++) {
+      const p = photos[i];
+      const lid = p.listing_id as string;
+      if (covers[lid] === undefined && p.url) {
+        covers[lid] = p.url as string;
+      }
     }
   }
 
-  const rows = (chats ?? []).map(c => ({
-    id: c.id,
-    listing_id: c.listing_id,
-    owner_id: c.owner_id,
-    participant_id: c.participant_id,
-    last_message_at: c.last_message_at ?? c.created_at,
-    last_message_preview: c.last_message_preview ?? null,
-    listing: c.listing ?? null,
-    cover_url: c.listing_id ? covers.get(c.listing_id) ?? null : null,
-  }));
+  // 5) формируем ответ
+  const rows = chats.map((c) => {
+    const lid = c.listing_id as string | null;
+    const listing = lid && listingMap[lid] ? listingMap[lid] : null;
+    return {
+      id: c.id,
+      listing_id: lid,
+      owner_id: c.owner_id,
+      participant_id: c.participant_id,
+      last_message_at: c.last_message_at || c.created_at,
+      last_message_preview: c.last_message_preview ?? null,
+      listing,                           // { id, title, city } | null
+      cover_url: lid && covers[lid] ? covers[lid] : null,
+    };
+  });
 
   return NextResponse.json({ rows });
 }
