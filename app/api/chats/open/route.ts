@@ -1,5 +1,4 @@
 // app/api/chats/open/route.ts
-export const runtime = 'nodejs';// app/api/chats/open/route.ts
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -8,15 +7,23 @@ import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { getSupabaseAdmin } from '@/lib/supabase-admin';
 
+/**
+ * Find-or-create чат между (ownerId ↔ currentUser) по конкретному listingId.
+ * Требует UNIQUE(listing_id, owner_id, participant_id) в БД.
+ */
 export async function POST(req: Request) {
   try {
     const { userId } = auth();
-    if (!userId) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+    if (!userId) {
+      return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+    }
 
-    const { listingId, ownerId } = await req.json();
+    const payload = await req.json().catch(() => ({}));
+    const listingId = payload?.listingId as string | undefined;
+    const ownerId = payload?.ownerId as string | undefined;
 
     if (!listingId || !ownerId) {
-      return NextResponse.json({ error: 'bad_request' }, { status: 400 });
+      return NextResponse.json({ error: 'bad_request', message: 'listingId and ownerId are required' }, { status: 400 });
     }
     if (ownerId === userId) {
       return NextResponse.json({ error: 'self_chat_forbidden' }, { status: 400 });
@@ -24,8 +31,8 @@ export async function POST(req: Request) {
 
     const sb = getSupabaseAdmin();
 
-    // ВАЖНО: .upsert c onConflict по трём колонкам опирается на UNIQUE(chats_unique_pair)
-    const { data, error } = await sb
+    // upsert опирается на UNIQUE(listing_id, owner_id, participant_id)
+    const up = await sb
       .from('chats')
       .upsert(
         { listing_id: listingId, owner_id: ownerId, participant_id: userId },
@@ -34,9 +41,9 @@ export async function POST(req: Request) {
       .select('id')
       .single();
 
-    if (error || !data) {
-      // Если вдруг конфликт обработать не удалось — пробуем найти вручную
-      const { data: existed } = await sb
+    if (up.error && !up.data) {
+      // fallback: найти вручную (на случай разных версий PostgREST)
+      const existed = await sb
         .from('chats')
         .select('id')
         .eq('listing_id', listingId)
@@ -44,14 +51,12 @@ export async function POST(req: Request) {
         .eq('participant_id', userId)
         .maybeSingle();
 
-      if (!existed) {
-        return NextResponse.json({ error: 'db_error', message: error?.message }, { status: 500 });
-      }
-      return NextResponse.json({ id: existed.id });
+      if (existed.data?.id) return NextResponse.json({ id: existed.data.id });
+      return NextResponse.json({ error: 'db_error', message: up.error.message }, { status: 500 });
     }
 
-    return NextResponse.json({ id: data.id });
+    return NextResponse.json({ id: up.data!.id });
   } catch (e: any) {
-    return NextResponse.json({ error: 'internal', message: e?.message }, { status: 500 });
+    return NextResponse.json({ error: 'internal', message: e?.message || 'unknown' }, { status: 500 });
   }
 }
