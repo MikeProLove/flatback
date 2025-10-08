@@ -6,7 +6,7 @@ import { notFound } from 'next/navigation';
 import { auth } from '@clerk/nextjs/server';
 import { getSupabaseAdmin } from '@/lib/supabase-admin';
 import PublishButtons from '../_components/PublishButtons';
-import Link from 'next/link';
+import PhotoGallery from './PhotoGallery';
 
 type ListingRow = {
   id: string;
@@ -32,7 +32,9 @@ type ListingRow = {
 };
 
 type PhotoRow = {
+  id?: string;
   url: string;
+  storage_path?: string | null;
   sort_order: number | null;
 };
 
@@ -52,31 +54,14 @@ function money(n?: number | null) {
 export default async function ListingPage({ params }: { params: { id: string } }) {
   const sb = getSupabaseAdmin();
 
-  // 1) Получаем объявление одной строкой с явной типизацией
+  // 1) объявление
   const { data: listing, error } = await sb
     .from('listings')
     .select(
       [
-        'id',
-        'title',
-        'status',
-        'price',
-        'currency',
-        'deposit',
-        'city',
-        'address',
-        'description',
-        'rooms',
-        'area_total',
-        'area_living',
-        'area_kitchen',
-        'floor',
-        'floors_total',
-        'lat',
-        'lng',
-        'owner_id',
-        'user_id',
-        'created_at',
+        'id','title','status','price','currency','deposit','city','address','description',
+        'rooms','area_total','area_living','area_kitchen','floor','floors_total',
+        'lat','lng','owner_id','user_id','created_at',
       ].join(',')
     )
     .eq('id', params.id)
@@ -84,85 +69,69 @@ export default async function ListingPage({ params }: { params: { id: string } }
 
   if (error || !listing) notFound();
 
-  // 2) Фото
-  const { data: photos } = await sb
-    .from('listing_photos')
-    .select('url, sort_order')
-    .eq('listing_id', params.id)
-    .order('sort_order', { ascending: true });
+  // 2) фото из таблицы
+  const photosTyped: PhotoRow[] =
+    ((await sb
+      .from('listing_photos')
+      .select('id, url, storage_path, sort_order')
+      .eq('listing_id', params.id)
+      .order('sort_order', { ascending: true })).data ?? []) as PhotoRow[];
 
-  const photosTyped = (photos ?? []) as PhotoRow[];
+  // 3) fallback: если в таблице нет записей, берём 1–6 файлов из storage
+  let photos: PhotoRow[] = photosTyped;
+  if (!photosTyped.length) {
+    const owner = listing.owner_id || listing.user_id;
+    if (owner) {
+      const prefix = `${owner}/${listing.id}`;
+      const list = await sb.storage.from('listings').list(prefix, { limit: 6 });
+      const fromStorage =
+        (list?.data ?? []).map((f, i) => {
+          const path = `${prefix}/${f.name}`;
+          const pub = sb.storage.from('listings').getPublicUrl(path);
+          return {
+            url: pub.data.publicUrl,
+            storage_path: path,
+            sort_order: i,
+          } as PhotoRow;
+        }) ?? [];
+      photos = fromStorage;
+    }
+  }
 
-  // 3) Проверка владельца для показа кнопок
+  // 4) владелец?
   const { userId } = auth();
   const isOwner =
     !!userId &&
     (listing.owner_id === userId || (!listing.owner_id && listing.user_id === userId));
-    {isOwner && (
-  <div className="mt-2">
-    <Link
-      href={`/listings/${listing.id}/edit`}
-      className="inline-flex items-center px-3 py-1 border rounded-md text-sm hover:bg-muted"
-    >
-      Редактировать
-    </Link>
-  </div>
-)}
-  
+
   return (
     <div className="mx-auto max-w-5xl px-4 py-8 space-y-6">
       <div className="flex items-start justify-between gap-4">
         <div className="space-y-1">
-          <h1 className="text-2xl font-semibold">
-            {listing.title ?? 'Объявление'}
-          </h1>
+          <h1 className="text-2xl font-semibold">{listing.title ?? 'Объявление'}</h1>
           <div className="text-sm text-muted-foreground">
             {listing.city ?? '—'} {listing.address ? `· ${listing.address}` : ''}
           </div>
           <div className="text-xs">
             Статус:{' '}
-            <span
-              className={
-                listing.status === 'published' ? 'text-green-600' : 'text-yellow-700'
-              }
-            >
+            <span className={listing.status === 'published' ? 'text-green-600' : 'text-yellow-700'}>
               {listing.status}
             </span>
           </div>
         </div>
 
-        {isOwner ? (
-          <PublishButtons id={listing.id} status={listing.status ?? undefined} />
-        ) : null}
+        {isOwner ? <PublishButtons id={listing.id} status={listing.status ?? undefined} /> : null}
       </div>
 
-      {/* Фото */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        {photosTyped.length ? (
-          photosTyped.map((p, i) => (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              key={`${p.url}-${i}`}
-              src={p.url}
-              alt=""
-              className="w-full h-64 rounded-2xl object-cover border"
-            />
-          ))
-        ) : (
-          <div className="rounded-2xl border p-6 text-sm text-muted-foreground">
-            Фото не загружены.
-          </div>
-        )}
-      </div>
+      {/* Галерея фото с полноэкранным просмотром */}
+      <PhotoGallery images={photos.map((p) => ({ url: p.url }))} />
 
-      {/* Краткие характеристики */}
+      {/* Характеристики + описание */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div className="rounded-2xl border p-4 space-y-2">
           <div className="text-base font-semibold">{money(listing.price)}</div>
           {listing.deposit ? (
-            <div className="text-sm text-muted-foreground">
-              Залог: {money(listing.deposit)}
-            </div>
+            <div className="text-sm text-muted-foreground">Залог: {money(listing.deposit)}</div>
           ) : null}
           <div className="text-sm">
             {listing.rooms ?? '—'}к · {listing.area_total ?? '—'} м²
