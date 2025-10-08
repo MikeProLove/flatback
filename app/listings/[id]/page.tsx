@@ -5,45 +5,70 @@ export const revalidate = 0;
 import { notFound } from 'next/navigation';
 import { auth } from '@clerk/nextjs/server';
 import { getSupabaseAdmin } from '@/lib/supabase-admin';
-import PublishButtons from '../_components/PublishButtons';
-import PhotoGallery from './PhotoGallery';
+import FavoriteToggle from './ui/FavoriteToggle';
+import StartChatButton from './ui/StartChatButton';
+import BookWidget from './ui/BookWidget';
+import Amenities from './ui/Amenities';
+import PhotoLightbox from './ui/PhotoLightbox';
 
 type ListingRow = {
   id: string;
-  title: string | null;
-  status: 'draft' | 'published' | string | null;
-  price: number | null;
-  currency: string | null;
-  deposit: number | null;
-  city: string | null;
-  address: string | null;
-  description: string | null;
-  rooms: number | null;
-  area_total: number | null;
-  area_living: number | null;
-  area_kitchen: number | null;
-  floor: number | null;
-  floors_total: number | null;
-  lat: number | null;
-  lng: number | null;
   owner_id: string | null;
   user_id: string | null;
+
+  status: 'draft' | 'published';
+  title: string | null;
+  description: string | null;
+
+  price: number | null;
+  deposit: number | null;
+  currency: 'RUB' | 'USD' | 'EUR' | null;
+
+  city: string | null;
+  address: string | null;
+  rooms: number | null;
+  area_total: number | null;
+  floor: number | null;
+  floors_total: number | null;
+
+  lat: number | null;
+  lng: number | null;
+
+  // удобства/характеристики
+  building_type: string | null;
+  renovation: string | null;
+  furniture: string | null;
+  appliances: string | null;
+  balcony: string | null;
+  bathroom: string | null;
+  ceiling_height: number | null;
+  parking: string | null;
+  internet: string | null;
+  concierge: string | null;
+  security: string | null;
+  lift: string | null;
+  utilities_included: boolean | null;
+  pets_allowed: boolean | null;
+  kids_allowed: boolean | null;
+  metro: string | null;
+  metro_distance_min: number | null;
+
   created_at: string;
 };
 
 type PhotoRow = {
-  id?: string;
-  url: string;
-  storage_path?: string | null;
+  id: string;
+  url: string | null;
+  storage_path: string | null;
   sort_order: number | null;
 };
 
-function money(n?: number | null) {
+function money(n?: number | null, cur: string = 'RUB') {
   const v = Number(n ?? 0);
   try {
     return new Intl.NumberFormat('ru-RU', {
       style: 'currency',
-      currency: 'RUB',
+      currency: cur as any,
       maximumFractionDigits: 0,
     }).format(v);
   } catch {
@@ -52,6 +77,7 @@ function money(n?: number | null) {
 }
 
 export default async function ListingPage({ params }: { params: { id: string } }) {
+  const { userId } = auth();
   const sb = getSupabaseAdmin();
 
   // 1) объявление
@@ -59,9 +85,41 @@ export default async function ListingPage({ params }: { params: { id: string } }
     .from('listings')
     .select(
       [
-        'id','title','status','price','currency','deposit','city','address','description',
-        'rooms','area_total','area_living','area_kitchen','floor','floors_total',
-        'lat','lng','owner_id','user_id','created_at',
+        'id',
+        'owner_id',
+        'user_id',
+        'status',
+        'title',
+        'description',
+        'price',
+        'deposit',
+        'currency',
+        'city',
+        'address',
+        'rooms',
+        'area_total',
+        'floor',
+        'floors_total',
+        'lat',
+        'lng',
+        'building_type',
+        'renovation',
+        'furniture',
+        'appliances',
+        'balcony',
+        'bathroom',
+        'ceiling_height',
+        'parking',
+        'internet',
+        'concierge',
+        'security',
+        'lift',
+        'utilities_included',
+        'pets_allowed',
+        'kids_allowed',
+        'metro',
+        'metro_distance_min',
+        'created_at',
       ].join(',')
     )
     .eq('id', params.id)
@@ -69,81 +127,109 @@ export default async function ListingPage({ params }: { params: { id: string } }
 
   if (error || !listing) notFound();
 
-  // 2) фото из таблицы
-  const photosTyped: PhotoRow[] =
-    ((await sb
-      .from('listing_photos')
-      .select('id, url, storage_path, sort_order')
-      .eq('listing_id', params.id)
-      .order('sort_order', { ascending: true })).data ?? []) as PhotoRow[];
+  // 2) фото
+  const { data: photosRaw } = await sb
+    .from('listing_photos')
+    .select('id,url,storage_path,sort_order')
+    .eq('listing_id', params.id)
+    .order('sort_order', { ascending: true });
 
-  // 3) fallback: если в таблице нет записей, берём 1–6 файлов из storage
-  let photos: PhotoRow[] = photosTyped;
-  if (!photosTyped.length) {
-    const owner = listing.owner_id || listing.user_id;
-    if (owner) {
-      const prefix = `${owner}/${listing.id}`;
-      const list = await sb.storage.from('listings').list(prefix, { limit: 6 });
-      const fromStorage =
-        (list?.data ?? []).map((f, i) => {
-          const path = `${prefix}/${f.name}`;
-          const pub = sb.storage.from('listings').getPublicUrl(path);
-          return {
-            url: pub.data.publicUrl,
-            storage_path: path,
-            sort_order: i,
-          } as PhotoRow;
-        }) ?? [];
-      photos = fromStorage;
-    }
+  const photos = (photosRaw ?? []) as PhotoRow[];
+  const cover = photos[0]?.url || null;
+
+  // 3) избранное этого пользователя
+  let isFavorite = false;
+  if (userId) {
+    const fav = await sb
+      .from('favorites')
+      .select('listing_id')
+      .eq('user_id', userId)
+      .eq('listing_id', params.id)
+      .maybeSingle();
+    isFavorite = !!fav.data;
   }
 
-  // 4) владелец?
-  const { userId } = auth();
   const isOwner =
-    !!userId &&
-    (listing.owner_id === userId || (!listing.owner_id && listing.user_id === userId));
+    !!userId && (listing.owner_id === userId || (!listing.owner_id && listing.user_id === userId));
 
   return (
-    <div className="mx-auto max-w-5xl px-4 py-8 space-y-6">
-      <div className="flex items-start justify-between gap-4">
-        <div className="space-y-1">
+    <div className="mx-auto max-w-6xl px-4 py-8 space-y-6">
+      {/* Заголовок + действия */}
+      <div className="flex items-start gap-3">
+        <div className="flex-1">
           <h1 className="text-2xl font-semibold">{listing.title ?? 'Объявление'}</h1>
           <div className="text-sm text-muted-foreground">
-            {listing.city ?? '—'} {listing.address ? `· ${listing.address}` : ''}
-          </div>
-          <div className="text-xs">
-            Статус:{' '}
-            <span className={listing.status === 'published' ? 'text-green-600' : 'text-yellow-700'}>
-              {listing.status}
-            </span>
+            {listing.city ?? '—'}, {listing.address ?? '—'}
           </div>
         </div>
 
-        {isOwner ? <PublishButtons id={listing.id} status={listing.status ?? undefined} /> : null}
+        {/* Избранное — доступно всем, кто вошёл */}
+        {userId ? (
+          <FavoriteToggle listingId={listing.id} initial={isFavorite} />
+        ) : null}
       </div>
 
-      {/* Галерея фото с полноэкранным просмотром */}
-      <PhotoGallery images={photos.map((p) => ({ url: p.url }))} />
+      {/* Галерея */}
+      {photos.length > 0 ? (
+        <PhotoLightbox
+          images={photos.map((p) => p.url!).filter(Boolean)}
+          thumbClass="rounded-xl overflow-hidden"
+        />
+      ) : (
+        <div className="rounded-xl border p-6 text-sm text-muted-foreground">
+          Фото ещё не загружены.
+        </div>
+      )}
 
-      {/* Характеристики + описание */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div className="rounded-2xl border p-4 space-y-2">
-          <div className="text-base font-semibold">{money(listing.price)}</div>
-          {listing.deposit ? (
-            <div className="text-sm text-muted-foreground">Залог: {money(listing.deposit)}</div>
-          ) : null}
-          <div className="text-sm">
-            {listing.rooms ?? '—'}к · {listing.area_total ?? '—'} м²
-            {listing.floor ? ` · ${listing.floor}` : ''}{' '}
-            {listing.floors_total ? `/${listing.floors_total} эт.` : ''}
+      {/* Основные факты */}
+      <div className="grid grid-cols-1 md:grid-cols-[1.2fr_.8fr] gap-6">
+        <div className="space-y-4">
+          <div className="rounded-2xl border p-4 space-y-2">
+            <div className="text-xl font-semibold">
+              {money(listing.price, listing.currency ?? 'RUB')}
+              {listing.deposit ? (
+                <span className="text-sm text-muted-foreground ml-2">
+                  · залог {money(listing.deposit, listing.currency ?? 'RUB')}
+                </span>
+              ) : null}
+            </div>
+            <div className="text-sm">
+              Комнат: <b>{listing.rooms ?? '—'}</b> · Площадь: <b>{listing.area_total ?? '—'} м²</b>{' '}
+              · Этаж: <b>{listing.floor ?? '—'}</b> из <b>{listing.floors_total ?? '—'}</b>
+            </div>
           </div>
+
+          {listing.description ? (
+            <div className="rounded-2xl border p-4 whitespace-pre-wrap">{listing.description}</div>
+          ) : null}
+
+          {/* Удобства */}
+          <Amenities listing={listing} />
         </div>
 
-        <div className="rounded-2xl border p-4">
-          <div className="text-sm whitespace-pre-wrap">
-            {listing.description || 'Описание не заполнено.'}
-          </div>
+        <div className="space-y-4">
+          {/* Кнопка чата — только не владельцу */}
+          {!isOwner && userId ? (
+            <div className="rounded-2xl border p-4">
+              <StartChatButton
+                listingId={listing.id}
+                ownerId={listing.owner_id || listing.user_id || ''}
+                title={listing.title ?? 'Объявление'}
+                cover={cover ?? undefined}
+              />
+            </div>
+          ) : null}
+
+          {/* Виджет брони/заявки */}
+          {!isOwner ? (
+            <div className="rounded-2xl border p-4">
+              <BookWidget
+                listingId={listing.id}
+                price={Number(listing.price) || 0}
+                deposit={typeof listing.deposit === 'number' ? listing.deposit : null}
+              />
+            </div>
+          ) : null}
         </div>
       </div>
     </div>
