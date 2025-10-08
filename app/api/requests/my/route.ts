@@ -7,87 +7,76 @@ import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { getSupabaseAdmin } from '@/lib/supabase-admin';
 
-/**
- * Возвращает заявки текущего пользователя (как арендатора),
- * плюс данные объявления (title/city/cover) и owner_id_for_chat.
- */
 export async function GET() {
   const { userId } = auth();
   if (!userId) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
 
   const sb = getSupabaseAdmin();
 
-  // 1) Заявки пользователя (название полей может отличаться, поэтому используем OR по двум возможным полям)
-  const reqRes = await sb
+  // 1) Берём заявки пользователя. Сначала пытаемся по renter_id,
+  // если такого столбца нет — делаем fallback на user_id.
+  let reqRes = await sb
     .from('bookings')
-    .select(
-      [
-        'id',
-        'created_at',
-        'status',
-        'payment_status',
-        'start_date',
-        'end_date',
-        'monthly_price',
-        'deposit',
-        'listing_id',
-      ].join(',')
-    )
-    .or(`renter_id.eq.${userId},user_id.eq.${userId}`)
+    .select('*')
+    .eq('renter_id', userId)
     .order('created_at', { ascending: false });
 
+  if (reqRes.error) {
+    reqRes = await sb
+      .from('bookings')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false });
+  }
   if (reqRes.error) {
     return NextResponse.json({ error: 'db_error', message: reqRes.error.message }, { status: 500 });
   }
   const rows = (reqRes.data ?? []) as any[];
 
-  // 2) Соберём уникальные listing_id без Set/spread (совместимо со старым target)
+  // 2) listing_id → инфо объявления
   const listingIds: string[] = [];
   for (let i = 0; i < rows.length; i++) {
     const lid = rows[i]?.listing_id as string | null;
     if (lid && listingIds.indexOf(lid) === -1) listingIds.push(lid);
   }
 
-  // 3) Подтянем объявления (владелец, заголовок, город)
-  const listingMap: Record<
-    string,
-    { id: string; owner_id: string | null; user_id: string | null; title: string | null; city: string | null }
-  > = {};
-  if (listingIds.length > 0) {
-    const lRes = await sb
-      .from('listings')
-      .select('id, owner_id, user_id, title, city')
-      .in('id', listingIds);
-    const listings = (lRes.data ?? []) as any[];
-    for (let i = 0; i < listings.length; i++) {
-      const l = listings[i];
-      listingMap[l.id] = {
-        id: l.id,
-        owner_id: l.owner_id ?? null,
-        user_id: l.user_id ?? null,
-        title: l.title ?? null,
-        city: l.city ?? null,
-      };
+  const listingMap: Record<string, { id: string; owner_id: string | null; user_id: string | null; title: string | null; city: string | null }> = {};
+  if (listingIds.length) {
+    const lRes = await sb.from('listings').select('id, owner_id, user_id, title, city').in('id', listingIds);
+    if (!lRes.error) {
+      const arr = (lRes.data ?? []) as any[];
+      for (let i = 0; i < arr.length; i++) {
+        const l = arr[i];
+        listingMap[l.id] = {
+          id: l.id,
+          owner_id: l.owner_id ?? null,
+          user_id: l.user_id ?? null,
+          title: l.title ?? null,
+          city: l.city ?? null,
+        };
+      }
     }
   }
 
-  // 4) Первая фотка как cover
+  // 3) первая фотка как cover
   const covers: Record<string, string> = {};
-  if (listingIds.length > 0) {
+  if (listingIds.length) {
     const pRes = await sb
       .from('listing_photos')
       .select('listing_id, url, sort_order')
       .in('listing_id', listingIds)
       .order('sort_order', { ascending: true });
-    const photos = (pRes.data ?? []) as any[];
-    for (let i = 0; i < photos.length; i++) {
-      const p = photos[i];
-      const lid = p.listing_id as string;
-      if (covers[lid] === undefined && p.url) covers[lid] = p.url as string;
+    if (!pRes.error) {
+      const photos = (pRes.data ?? []) as any[];
+      for (let i = 0; i < photos.length; i++) {
+        const p = photos[i];
+        const lid = p.listing_id as string;
+        if (covers[lid] === undefined && p.url) covers[lid] = p.url as string;
+      }
     }
   }
 
-  // 5) Сформируем результат + owner_id_for_chat
+  // 4) ответ
   const out = rows.map((r) => {
     const l = r.listing_id ? listingMap[r.listing_id] : null;
     const ownerIdForChat = l ? (l.owner_id || l.user_id) : null;
@@ -98,9 +87,9 @@ export async function GET() {
       payment_status: r.payment_status,
       start_date: r.start_date,
       end_date: r.end_date,
-      monthly_price: r.monthly_price,
-      deposit: r.deposit,
-      listing_id: r.listing_id,
+      monthly_price: r.monthly_price ?? r.price ?? 0,
+      deposit: r.deposit ?? null,
+      listing_id: r.listing_id ?? null,
       listing_title: l ? l.title : null,
       listing_city: l ? l.city : null,
       cover_url: r.listing_id ? (covers[r.listing_id] ?? null) : null,
