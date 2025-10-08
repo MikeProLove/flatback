@@ -229,12 +229,21 @@ export default async function ListingPage({ params }: { params: { id: string } }
                   />
                 )}
               
-                <BookWidget
-                  listingId={listing.id}
-                  price={Number(listing.price) || 0}
-                  deposit={typeof listing.deposit === 'number' ? listing.deposit : null}
-                />
-              </div>
+               {/* Чат + бронирование */}
+<div className="mt-6 space-y-3">
+  {!isOwner && (
+    <ChatOpenButton
+      ownerId={(listing.owner_id || listing.user_id)!}
+      listingId={listing.id}
+    />
+  )}
+
+  <BookWidget
+    listingId={listing.id}
+    price={Number(listing.price) || 0}
+    deposit={typeof listing.deposit === 'number' ? listing.deposit : null}
+  />
+</div>
           ) : null}
         </div>
       </div>
