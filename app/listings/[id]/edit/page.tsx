@@ -46,11 +46,14 @@ type ListingRow = {
   tour_url: string | null;
 };
 
+type PhotoRow = { id: string; url: string; storage_path: string | null; sort_order: number | null };
+
 export default async function EditListingPage({ params }: { params: { id: string } }) {
   const { userId } = auth();
   if (!userId) notFound();
 
   const sb = getSupabaseAdmin();
+
   const { data, error } = await sb
     .from('listings')
     .select(
@@ -60,21 +63,26 @@ export default async function EditListingPage({ params }: { params: { id: string
         'lat','lng','metro','metro_distance_min','deposit',
         'utilities_included','pets_allowed','kids_allowed',
         'building_type','renovation','furniture','appliances','balcony','bathroom',
-        'ceiling_height','parking','internet','concierge','security','lift','tour_url'
+        'ceiling_height','parking','internet','concierge','security','lift','tour_url',
       ].join(',')
     )
     .eq('id', params.id)
     .maybeSingle<ListingRow>();
 
   if (error || !data) notFound();
-
   const owner = data.owner_id || data.user_id;
   if (owner !== userId) notFound();
+
+  const { data: photos } = await sb
+    .from('listing_photos')
+    .select('id,url,storage_path,sort_order')
+    .eq('listing_id', params.id)
+    .order('sort_order', { ascending: true });
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-8">
       <h1 className="text-2xl font-semibold mb-6">Редактировать объявление</h1>
-      <EditFormClient initial={data} />
+      <EditFormClient initial={data} initialPhotos={(photos ?? []) as PhotoRow[]} />
     </div>
   );
 }
