@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import OpenChatButton from '@/app/(components)/OpenChatButton';
+import OpenChatButton from '../../components/OpenChatButton';
 
 type Row = {
   id: string;
