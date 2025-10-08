@@ -32,7 +32,7 @@ export async function GET(_: Request, { params }: { params: { id: string } }) {
 
   const { data, error } = await sb
     .from('chat_messages')
-    .select('id, created_at, sender_id, body')
+    .select('id, created_at, sender_id, body, chat_id')
     .eq('chat_id', params.id)
     .order('created_at', { ascending: true });
 
@@ -55,11 +55,15 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   const ins = await sb
     .from('chat_messages')
     .insert({ chat_id: params.id, sender_id: userId, body: text })
-    .select('id, created_at, sender_id, body')
+    .select('id, created_at, sender_id, body, chat_id')
     .single();
 
   if (ins.error || !ins.data) {
     return NextResponse.json({ error: 'db_error', message: ins.error?.message }, { status: 500 });
   }
+
+  // Обновим "последнюю активность" чата — для списка/сортировки
+  await sb.from('chats').update({ last_message_at: ins.data.created_at }).eq('id', params.id);
+
   return NextResponse.json({ message: ins.data });
 }
