@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useUser } from '@clerk/nextjs';
 import OpenChatButton from '@/app/(components)/OpenChatButton';
 
 type Row = {
@@ -13,23 +14,21 @@ type Row = {
   deposit: number | null;
   created_at: string;
   listing_id: string | null;
-  // владелец объявления (второй участник чата для арендатора)
-  owner_id?: string | null;
-  owner_id_for_chat?: string | null; // если API отдаёт под другим именем
   listing_title: string | null;
   listing_city: string | null;
   cover_url: string | null;
-  chat_id?: string | null;
+
+  // ВАЖНО: это владелец объявления — с ним мы и чатимся
+  owner_id_for_chat: string | null;
+
+  // если чат уже есть — просто ссылка
+  chat_id: string | null;
 };
 
 function money(n?: number | null) {
   const v = Number(n ?? 0);
   try {
-    return new Intl.NumberFormat('ru-RU', {
-      style: 'currency',
-      currency: 'RUB',
-      maximumFractionDigits: 0,
-    }).format(v);
+    return new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', maximumFractionDigits: 0 }).format(v);
   } catch {
     return `${Math.round(v)} ₽`;
   }
@@ -40,13 +39,16 @@ const safeDate = (d: any) => {
 };
 
 export default function RequestsPage() {
+  const { user } = useUser();
+  const me = user?.id || null;
+
   const [rows, setRows] = useState<Row[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
     (async () => {
       try {
-        const r = await fetch('/api/requests/my', { cache: 'no-store' });
+        const r = await fetch('/api/requests/mine', { cache: 'no-store' });
         const j = await r.json();
         if (!r.ok) throw new Error(j?.message || j?.error || 'load_failed');
         setRows(j.rows ?? []);
@@ -57,36 +59,18 @@ export default function RequestsPage() {
     })();
   }, []);
 
-  if (err) {
-    return (
-      <div className="mx-auto max-w-5xl px-4 py-10">
-        <h1 className="text-2xl font-semibold mb-4">Мои заявки</h1>
-        <div className="rounded-2xl border p-6 text-sm text-red-600">Ошибка: {String(err)}</div>
-      </div>
-    );
-  }
-
-  if (rows === null) {
-    return (
-      <div className="mx-auto max-w-5xl px-4 py-10">
-        <h1 className="text-2xl font-semibold mb-4">Мои заявки</h1>
-        <div className="rounded-2xl border p-6 text-sm text-muted-foreground">Загружаем…</div>
-      </div>
-    );
-  }
-
   return (
     <div className="mx-auto max-w-5xl px-4 py-10 space-y-6">
       <h1 className="text-2xl font-semibold">Мои заявки</h1>
 
-      {rows.length === 0 ? (
-        <div className="rounded-2xl border p-6 text-sm text-muted-foreground">
-          У вас пока нет заявок.
-        </div>
-      ) : (
+      {err && <div className="rounded-2xl border p-6 text-sm text-red-600">Ошибка: {String(err)}</div>}
+      {rows === null && <div className="rounded-2xl border p-6 text-sm text-muted-foreground">Загружаем…</div>}
+
+      {Array.isArray(rows) && rows.length > 0 && (
         <div className="space-y-4">
           {rows.map((r) => {
-            const otherId = r.owner_id_for_chat || r.owner_id || null;
+            const isSelf = !!me && !!r.owner_id_for_chat && me === r.owner_id_for_chat;
+
             return (
               <div key={r.id} className="rounded-2xl border overflow-hidden">
                 <div className="grid grid-cols-[160px_1fr] gap-0">
@@ -100,10 +84,7 @@ export default function RequestsPage() {
                   <div className="p-4 space-y-2">
                     <div className="flex items-start justify-between gap-2">
                       <div className="space-y-1">
-                        <a
-                          href={r.listing_id ? `/listings/${r.listing_id}` : '#'}
-                          className="font-medium hover:underline"
-                        >
+                        <a href={r.listing_id ? `/listings/${r.listing_id}` : '#'} className="font-medium hover:underline">
                           {r.listing_title ?? 'Объявление'}
                         </a>
                         <div className="text-sm text-muted-foreground">{r.listing_city ?? '—'}</div>
@@ -114,9 +95,7 @@ export default function RequestsPage() {
 
                       <div className="text-right text-sm">
                         <div className="font-semibold">{money(r.monthly_price)} / мес</div>
-                        {r.deposit ? (
-                          <div className="text-muted-foreground">Залог: {money(r.deposit)}</div>
-                        ) : null}
+                        {r.deposit ? <div className="text-muted-foreground">Залог: {money(r.deposit)}</div> : null}
                         <div className="text-xs">
                           <span
                             className={
@@ -148,17 +127,21 @@ export default function RequestsPage() {
                     </div>
 
                     <div className="pt-2 flex flex-wrap gap-8 items-center">
-                      {/* если чат уже есть — просто ссылка */}
+                      {/* если чат уже есть — просто ссылка (ВАЖНО: путь /chat/) */}
                       {r.chat_id ? (
                         <a href={`/chat/${r.chat_id}`} className="px-3 py-1 border rounded-md text-sm">
                           Открыть чат
                         </a>
-                      ) : r.listing_id && otherId ? (
-                        <OpenChatButton
-                          listingId={r.listing_id}
-                          otherId={otherId}
-                          label="Открыть чат"
-                        />
+                      ) : r.listing_id && r.owner_id_for_chat ? (
+                        isSelf ? (
+                          <span className="text-xs text-muted-foreground">Чат недоступен (ваше объявление)</span>
+                        ) : (
+                          <OpenChatButton
+                            listingId={r.listing_id}
+                            otherUserId={r.owner_id_for_chat}
+                            label="Открыть чат"
+                          />
+                        )
                       ) : null}
                     </div>
                   </div>
@@ -167,6 +150,10 @@ export default function RequestsPage() {
             );
           })}
         </div>
+      )}
+
+      {Array.isArray(rows) && rows.length === 0 && (
+        <div className="rounded-2xl border p-6 text-sm text-muted-foreground">Заявок пока нет.</div>
       )}
     </div>
   );
