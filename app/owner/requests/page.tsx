@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import OpenChatButton from '../../components/OpenChatButton';
+import OpenChatButton from '@/app/(components)/OpenChatButton';
 
 type Row = {
   id: string;
@@ -16,19 +16,14 @@ type Row = {
   listing_title: string | null;
   listing_city: string | null;
   cover_url: string | null;
-
-  renter_id_for_chat: string | null; // собеседник
-  chat_id: string | null;            // если уже есть чат
+  renter_id_for_chat: string | null; // другой участник — арендатор
+  chat_id: string | null;
 };
 
 function money(n?: number | null) {
   const v = Number(n ?? 0);
   try {
-    return new Intl.NumberFormat('ru-RU', {
-      style: 'currency',
-      currency: 'RUB',
-      maximumFractionDigits: 0,
-    }).format(v);
+    return new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', maximumFractionDigits: 0 }).format(v);
   } catch {
     return `${Math.round(v)} ₽`;
   }
@@ -95,10 +90,7 @@ export default function OwnerRequestsPage() {
                 <div className="p-4 space-y-2">
                   <div className="flex items-start justify-between gap-2">
                     <div className="space-y-1">
-                      <a
-                        href={r.listing_id ? `/listings/${r.listing_id}` : '#'}
-                        className="font-medium hover:underline"
-                      >
+                      <a href={r.listing_id ? `/listings/${r.listing_id}` : '#'} className="font-medium hover:underline">
                         {r.listing_title ?? 'Объявление'}
                       </a>
                       <div className="text-sm text-muted-foreground">{r.listing_city ?? '—'}</div>
@@ -150,7 +142,7 @@ export default function OwnerRequestsPage() {
                     ) : r.listing_id && r.renter_id_for_chat ? (
                       <OpenChatButton
                         listingId={r.listing_id}
-                        otherUserId={r.renter_id_for_chat}
+                        otherId={r.renter_id_for_chat}
                         label="Открыть чат"
                       />
                     ) : null}
