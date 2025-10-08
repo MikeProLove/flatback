@@ -208,16 +208,20 @@ export default async function ListingPage({ params }: { params: { id: string } }
         </div>
 
         {/* Правая колонка */}
-        <div className="space-y-4">
-          {/* Кнопка чата: показываем только не-владельцу */}
-          {!isOwner && userId ? (
-            <div className="rounded-2xl border p-4">
-              <ChatOpenButton
-                ownerId={(listing.owner_id || listing.user_id)!}
-                listingId={listing.id}
-              />
-            </div>
-          ) : null}
+        <div className="mt-6 space-y-3">
+  {!isOwner && (
+    <ChatOpenButton
+      ownerId={(listing.owner_id || listing.user_id)!}
+      listingId={listing.id}
+    />
+  )}
+
+  <BookWidget
+    listingId={listing.id}
+    price={Number(listing.price) || 0}
+    deposit={typeof listing.deposit === 'number' ? listing.deposit : null}
+  />
+</div>
 
           {/* Бронирование — можно оставить всем, либо тоже скрывать владельцу */}
           <div className="rounded-2xl border p-4">
