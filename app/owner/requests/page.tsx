@@ -12,11 +12,16 @@ type Row = {
   monthly_price: number;
   deposit: number | null;
   created_at: string;
+
   listing_id: string | null;
   listing_title: string | null;
   listing_city: string | null;
   cover_url: string | null;
-  renter_id_for_chat: string | null; // другой участник — арендатор
+
+  // арендатор — с ним открываем чат
+  renter_id_for_chat: string | null;
+
+  // если чат уже есть
   chat_id: string | null;
 };
 
@@ -51,31 +56,14 @@ export default function OwnerRequestsPage() {
     })();
   }, []);
 
-  if (err) {
-    return (
-      <div className="mx-auto max-w-5xl px-4 py-10">
-        <h1 className="text-2xl font-semibold mb-4">Заявки на мои</h1>
-        <div className="rounded-2xl border p-6 text-sm text-red-600">Ошибка: {String(err)}</div>
-      </div>
-    );
-  }
-
-  if (rows === null) {
-    return (
-      <div className="mx-auto max-w-5xl px-4 py-10">
-        <h1 className="text-2xl font-semibold mb-4">Заявки на мои</h1>
-        <div className="rounded-2xl border p-6 text-sm text-muted-foreground">Загружаем…</div>
-      </div>
-    );
-  }
-
   return (
     <div className="mx-auto max-w-5xl px-4 py-10 space-y-6">
       <h1 className="text-2xl font-semibold">Заявки на мои</h1>
 
-      {rows.length === 0 ? (
-        <div className="rounded-2xl border p-6 text-sm text-muted-foreground">Заявок пока нет.</div>
-      ) : (
+      {err && <div className="rounded-2xl border p-6 text-sm text-red-600">Ошибка: {String(err)}</div>}
+      {rows === null && <div className="rounded-2xl border p-6 text-sm text-muted-foreground">Загружаем…</div>}
+
+      {Array.isArray(rows) && rows.length > 0 && (
         <div className="space-y-4">
           {rows.map((r) => (
             <div key={r.id} className="rounded-2xl border overflow-hidden">
@@ -101,9 +89,7 @@ export default function OwnerRequestsPage() {
 
                     <div className="text-right text-sm">
                       <div className="font-semibold">{money(r.monthly_price)} / мес</div>
-                      {r.deposit ? (
-                        <div className="text-muted-foreground">Залог: {money(r.deposit)}</div>
-                      ) : null}
+                      {r.deposit ? <div className="text-muted-foreground">Залог: {money(r.deposit)}</div> : null}
                       <div className="text-xs">
                         <span
                           className={
@@ -136,13 +122,14 @@ export default function OwnerRequestsPage() {
 
                   <div className="pt-2 flex flex-wrap gap-8 items-center">
                     {r.chat_id ? (
+                      // ВАЖНО: путь /chat/
                       <a href={`/chat/${r.chat_id}`} className="px-3 py-1 border rounded-md text-sm">
                         Открыть чат
                       </a>
                     ) : r.listing_id && r.renter_id_for_chat ? (
                       <OpenChatButton
                         listingId={r.listing_id}
-                        otherId={r.renter_id_for_chat}
+                        otherUserId={r.renter_id_for_chat}
                         label="Открыть чат"
                       />
                     ) : null}
@@ -152,6 +139,10 @@ export default function OwnerRequestsPage() {
             </div>
           ))}
         </div>
+      )}
+
+      {Array.isArray(rows) && rows.length === 0 && (
+        <div className="rounded-2xl border p-6 text-sm text-muted-foreground">Заявок пока нет.</div>
       )}
     </div>
   );
