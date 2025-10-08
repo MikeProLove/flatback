@@ -13,7 +13,6 @@ async function assertMember(sb: ReturnType<typeof getSupabaseAdmin>, chatId: str
     .select('id, owner_id, participant_id')
     .eq('id', chatId)
     .maybeSingle();
-
   if (error) return { ok: false as const, status: 500, reason: 'db_error' as const };
   if (!data) return { ok: false as const, status: 404, reason: 'not_found' as const };
   if (data.owner_id !== userId && data.participant_id !== userId) {
@@ -32,9 +31,10 @@ export async function GET(_: Request, { params }: { params: { id: string } }) {
 
   const { data, error } = await sb
     .from('chat_messages')
-    .select('id, created_at, sender_id, body, chat_id')
+    .select('id, created_at, sender_id, body')
     .eq('chat_id', params.id)
-    .order('created_at', { ascending: true });
+    .order('created_at', { ascending: true })
+    .limit(1000);
 
   if (error) return NextResponse.json({ error: 'db_error', message: error.message }, { status: 500 });
   return NextResponse.json({ messages: data ?? [] });
@@ -55,15 +55,21 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   const ins = await sb
     .from('chat_messages')
     .insert({ chat_id: params.id, sender_id: userId, body: text })
-    .select('id, created_at, sender_id, body, chat_id')
+    .select('id, created_at, sender_id, body')
     .single();
 
   if (ins.error || !ins.data) {
     return NextResponse.json({ error: 'db_error', message: ins.error?.message }, { status: 500 });
   }
 
-  // Обновим "последнюю активность" чата — для списка/сортировки
-  await sb.from('chats').update({ last_message_at: ins.data.created_at }).eq('id', params.id);
+  // обновим last_message_* у чата
+  await sb
+    .from('chats')
+    .update({
+      last_message_at: new Date().toISOString(),
+      last_message_preview: text.slice(0, 160),
+    })
+    .eq('id', params.id);
 
   return NextResponse.json({ message: ins.data });
 }
