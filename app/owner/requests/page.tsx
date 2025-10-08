@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import ChatOpenWithButton from './ChatOpenWithButton';
+import OpenOrCreateChatBtn from './OpenOrCreateChatBtn';
 
 type Row = {
   id: string;
@@ -16,18 +16,23 @@ type Row = {
   listing_title: string | null;
   listing_city: string | null;
   cover_url: string | null;
-  renter_id_for_chat: string | null;
-  chat_id: string | null;
+  renter_id_for_chat: string | null; // с кем переписка (арендатор)
+  chat_id: string | null;            // может быть null, если чата ещё нет
 };
 
 function money(n?: number | null) {
   const v = Number(n ?? 0);
   try {
-    return new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', maximumFractionDigits: 0 }).format(v);
+    return new Intl.NumberFormat('ru-RU', {
+      style: 'currency',
+      currency: 'RUB',
+      maximumFractionDigits: 0,
+    }).format(v);
   } catch {
     return `${Math.round(v)} ₽`;
   }
 }
+
 const safeDate = (d: any) => {
   const dt = new Date(String(d));
   return Number.isFinite(+dt) ? dt.toLocaleDateString('ru-RU') : '—';
@@ -90,7 +95,10 @@ export default function OwnerRequestsPage() {
                 <div className="p-4 space-y-2">
                   <div className="flex items-start justify-between gap-2">
                     <div className="space-y-1">
-                      <a href={r.listing_id ? `/listings/${r.listing_id}` : '#'} className="font-medium hover:underline">
+                      <a
+                        href={r.listing_id ? `/listings/${r.listing_id}` : '#'}
+                        className="font-medium hover:underline"
+                      >
                         {r.listing_title ?? 'Объявление'}
                       </a>
                       <div className="text-sm text-muted-foreground">{r.listing_city ?? '—'}</div>
@@ -135,17 +143,17 @@ export default function OwnerRequestsPage() {
                   </div>
 
                   <div className="pt-2 flex flex-wrap gap-8 items-center">
-                    {/* если чат уже есть — просто ссылка */}
-                    {r.chat_id ? (
+                    {/* Кнопка: откроет существующий чат, либо создаст и перейдёт */}
+                    {r.listing_id && r.renter_id_for_chat ? (
+                      <OpenOrCreateChatBtn
+                        chatId={r.chat_id || undefined}
+                        listingId={r.listing_id}
+                        otherId={r.renter_id_for_chat}
+                      />
+                    ) : r.chat_id ? (
                       <a href={`/chat/${r.chat_id}`} className="px-3 py-1 border rounded-md text-sm">
                         Открыть чат
                       </a>
-                    ) : r.listing_id && r.renter_id_for_chat ? (
-                      <ChatOpenWithButton
-                        listingId={r.listing_id}
-                        otherUserId={r.renter_id_for_chat}
-                        label="Открыть чат"
-                      />
                     ) : null}
                   </div>
                 </div>
