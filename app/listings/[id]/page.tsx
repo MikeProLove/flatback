@@ -10,7 +10,6 @@ import BookWidget from './ui/BookWidget';
 import Amenities from './ui/Amenities';
 import PhotoLightbox from './ui/PhotoLightbox';
 import ChatOpenButton from './ui/ChatOpenButton';
-import ChatOpenButton from './ui/ChatOpenButton';
 
 type ListingRow = {
   id: string;
