@@ -41,24 +41,36 @@ export default function EditFormClient({ initial, initialPhotos }: Props) {
     }
   }
 
-  async function deletePhoto(ph: PhotoRow) {
-    if (!confirm('Удалить это фото?')) return;
-    try {
-      const res = await fetch(`/api/listings/${initial.id}/photos`, {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ photo_id: ph.id }),
-      });
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({}));
-        alert(j?.message || 'Не удалось удалить');
-        return;
-      }
-      setPhotos((prev) => prev.filter((p) => p.id !== ph.id));
-    } catch {
-      alert('Ошибка удаления');
+  // ...вверху файла как у тебя
+
+async function deletePhoto(ph: PhotoRow) {
+  if (!confirm('Удалить это фото?')) return;
+  try {
+    // Простая query-строка — без JSON и заголовков
+    const qs = new URLSearchParams();
+    if (ph.id) qs.set('photo_id', ph.id);
+    if (ph.storage_path) qs.set('storage_path', ph.storage_path);
+
+    const res = await fetch(`/api/listings/${initial.id}/photos?${qs.toString()}`, {
+      method: 'DELETE',
+    });
+
+    if (!res.ok) {
+      let msg = 'Не удалось удалить';
+      try {
+        const j = await res.json();
+        if (j?.message) msg = j.message;
+        else if (j?.error) msg = String(j.error);
+      } catch {}
+      alert(msg);
+      return;
     }
+
+    setPhotos((prev) => prev.filter((p) => p.id !== ph.id));
+  } catch (e: any) {
+    alert(e?.message || 'Ошибка удаления');
   }
+}
 
   return (
     <form onSubmit={onSubmit} className="space-y-6">
