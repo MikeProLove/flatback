@@ -5,8 +5,8 @@ export const revalidate = 0;
 import { notFound } from 'next/navigation';
 import { auth } from '@clerk/nextjs/server';
 import { getSupabaseAdmin } from '@/lib/supabase-admin';
+
 import FavoriteToggle from './ui/FavoriteToggle';
-import StartChatButton from './ui/StartChatButton';
 import BookWidget from './ui/BookWidget';
 import Amenities from './ui/Amenities';
 import PhotoLightbox from './ui/PhotoLightbox';
@@ -35,7 +35,6 @@ type ListingRow = {
   lat: number | null;
   lng: number | null;
 
-  // удобства/характеристики
   building_type: string | null;
   renovation: string | null;
   furniture: string | null;
@@ -77,176 +76,4 @@ function money(n?: number | null, cur: string = 'RUB') {
   }
 }
 
-export default async function ListingPage({ params }: { params: { id: string } }) {
-  const { userId } = auth();
-  const sb = getSupabaseAdmin();
-
-  // 1) объявление
-  const { data: listing, error } = await sb
-    .from('listings')
-    .select(
-      [
-        'id',
-        'owner_id',
-        'user_id',
-        'status',
-        'title',
-        'description',
-        'price',
-        'deposit',
-        'currency',
-        'city',
-        'address',
-        'rooms',
-        'area_total',
-        'floor',
-        'floors_total',
-        'lat',
-        'lng',
-        'building_type',
-        'renovation',
-        'furniture',
-        'appliances',
-        'balcony',
-        'bathroom',
-        'ceiling_height',
-        'parking',
-        'internet',
-        'concierge',
-        'security',
-        'lift',
-        'utilities_included',
-        'pets_allowed',
-        'kids_allowed',
-        'metro',
-        'metro_distance_min',
-        'created_at',
-      ].join(',')
-    )
-    .eq('id', params.id)
-    .single<ListingRow>();
-
-  if (error || !listing) notFound();
-
-  // 2) фото
-  const { data: photosRaw } = await sb
-    .from('listing_photos')
-    .select('id,url,storage_path,sort_order')
-    .eq('listing_id', params.id)
-    .order('sort_order', { ascending: true });
-
-  const photos = (photosRaw ?? []) as PhotoRow[];
-  const cover = photos[0]?.url || null;
-
-  // 3) избранное этого пользователя
-  let isFavorite = false;
-  if (userId) {
-    const fav = await sb
-      .from('favorites')
-      .select('listing_id')
-      .eq('user_id', userId)
-      .eq('listing_id', params.id)
-      .maybeSingle();
-    isFavorite = !!fav.data;
-  }
-
-  const isOwner =
-    !!userId && (listing.owner_id === userId || (!listing.owner_id && listing.user_id === userId));
-
-  return (
-    <div className="mx-auto max-w-6xl px-4 py-8 space-y-6">
-      {/* Заголовок + действия */}
-      <div className="flex items-start gap-3">
-        <div className="flex-1">
-          <h1 className="text-2xl font-semibold">{listing.title ?? 'Объявление'}</h1>
-          <div className="text-sm text-muted-foreground">
-            {listing.city ?? '—'}, {listing.address ?? '—'}
-          </div>
-        </div>
-
-        {/* Избранное — доступно всем, кто вошёл */}
-        {userId ? (
-          <FavoriteToggle listingId={listing.id} initial={isFavorite} />
-        ) : null}
-      </div>
-
-      {/* Галерея */}
-      {photos.length > 0 ? (
-        <PhotoLightbox
-          images={photos.map((p) => p.url!).filter(Boolean)}
-          thumbClass="rounded-xl overflow-hidden"
-        />
-      ) : (
-        <div className="rounded-xl border p-6 text-sm text-muted-foreground">
-          Фото ещё не загружены.
-        </div>
-      )}
-
-      {/* Основные факты */}
-      <div className="grid grid-cols-1 md:grid-cols-[1.2fr_.8fr] gap-6">
-        <div className="space-y-4">
-          <div className="rounded-2xl border p-4 space-y-2">
-            <div className="text-xl font-semibold">
-              {money(listing.price, listing.currency ?? 'RUB')}
-              {listing.deposit ? (
-                <span className="text-sm text-muted-foreground ml-2">
-                  · залог {money(listing.deposit, listing.currency ?? 'RUB')}
-                </span>
-              ) : null}
-            </div>
-            <div className="text-sm">
-              Комнат: <b>{listing.rooms ?? '—'}</b> · Площадь: <b>{listing.area_total ?? '—'} м²</b>{' '}
-              · Этаж: <b>{listing.floor ?? '—'}</b> из <b>{listing.floors_total ?? '—'}</b>
-            </div>
-          </div>
-
-          {listing.description ? (
-            <div className="rounded-2xl border p-4 whitespace-pre-wrap">{listing.description}</div>
-          ) : null}
-
-          {/* Удобства */}
-          <Amenities listing={listing} />
-        </div>
-
-        <div className="space-y-4">
-          {/* Кнопка чата — только не владельцу */}
-          {!isOwner && userId ? (
-            <div className="rounded-2xl border p-4">
-              <StartChatButton
-                listingId={listing.id}
-                ownerId={listing.owner_id || listing.user_id || ''}
-                title={listing.title ?? 'Объявление'}
-                cover={cover ?? undefined}
-              />
-            </div>
-          ) : null}
-
-          <div className="mt-6 space-y-3">
-                {!isOwner && (
-                  <ChatOpenButton
-                    ownerId={(listing.owner_id || listing.user_id)!}
-                    listingId={listing.id}
-                  />
-                )}
-              
-               {/* Чат + бронирование */}
-<div className="mt-6 space-y-3">
-  {!isOwner && (
-    <ChatOpenButton
-      ownerId={(listing.owner_id || listing.user_id)!}
-      listingId={listing.id}
-    />
-  )}
-
-  <BookWidget
-    listingId={listing.id}
-    price={Number(listing.price) || 0}
-    deposit={typeof listing.deposit === 'number' ? listing.deposit : null}
-  />
-</div>
-          ) : null}
-        </div>
-      </div>
-    </div>
-  );
-}
+export default async function ListingPage({analysis
