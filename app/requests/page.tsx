@@ -1,13 +1,12 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useUser } from '@clerk/nextjs';
 import OpenChatButton from '@/app/(components)/OpenChatButton';
 
 type Row = {
   id: string;
-  status: 'pending' | 'approved' | 'declined' | 'cancelled';
-  payment_status: 'pending' | 'paid' | 'refunded';
+  status: 'pending'|'approved'|'declined'|'cancelled';
+  payment_status: 'pending'|'paid'|'refunded';
   start_date: string | null;
   end_date: string | null;
   monthly_price: number;
@@ -17,40 +16,31 @@ type Row = {
   listing_title: string | null;
   listing_city: string | null;
   cover_url: string | null;
-
-  // ВАЖНО: это владелец объявления — с ним мы и чатимся
-  owner_id_for_chat: string | null;
-
-  // если чат уже есть — просто ссылка
   chat_id: string | null;
 };
 
 function money(n?: number | null) {
   const v = Number(n ?? 0);
-  try {
-    return new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', maximumFractionDigits: 0 }).format(v);
-  } catch {
-    return `${Math.round(v)} ₽`;
-  }
+  try { return new Intl.NumberFormat('ru-RU',{style:'currency',currency:'RUB',maximumFractionDigits:0}).format(v); }
+  catch { return `${Math.round(v)} ₽`; }
 }
 const safeDate = (d: any) => {
   const dt = new Date(String(d));
   return Number.isFinite(+dt) ? dt.toLocaleDateString('ru-RU') : '—';
 };
 
-export default function RequestsPage() {
-  const { user } = useUser();
-  const me = user?.id || null;
-
+export default function MyRequestsPage() {
   const [rows, setRows] = useState<Row[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
     (async () => {
       try {
+        setErr(null);
         const r = await fetch('/api/requests/mine', { cache: 'no-store' });
-        const j = await r.json();
-        if (!r.ok) throw new Error(j?.message || j?.error || 'load_failed');
+        const ct = r.headers.get('content-type') || '';
+        const j = ct.includes('application/json') ? await r.json() : { error: await r.text() };
+        if (!r.ok) throw new Error(j?.message || j?.error || `HTTP ${r.status}`);
         setRows(j.rows ?? []);
       } catch (e: any) {
         setErr(e?.message || 'Ошибка загрузки');
@@ -64,96 +54,66 @@ export default function RequestsPage() {
       <h1 className="text-2xl font-semibold">Мои заявки</h1>
 
       {err && <div className="rounded-2xl border p-6 text-sm text-red-600">Ошибка: {String(err)}</div>}
-      {rows === null && <div className="rounded-2xl border p-6 text-sm text-muted-foreground">Загружаем…</div>}
 
-      {Array.isArray(rows) && rows.length > 0 && (
+      {rows === null ? (
+        <div className="rounded-2xl border p-6 text-sm text-muted-foreground">Загружаем…</div>
+      ) : rows.length === 0 ? (
+        <div className="rounded-2xl border p-6 text-sm text-muted-foreground">Заявок пока нет.</div>
+      ) : (
         <div className="space-y-4">
-          {rows.map((r) => {
-            const isSelf = !!me && !!r.owner_id_for_chat && me === r.owner_id_for_chat;
+          {rows.map((r) => (
+            <div key={r.id} className="rounded-2xl border overflow-hidden">
+              <div className="grid grid-cols-[160px_1fr] gap-0">
+                <div className="bg-muted">
+                  {r.cover_url ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={r.cover_url} alt="" className="w-full h-full object-cover" />
+                  ) : null}
+                </div>
 
-            return (
-              <div key={r.id} className="rounded-2xl border overflow-hidden">
-                <div className="grid grid-cols-[160px_1fr] gap-0">
-                  <div className="bg-muted">
-                    {r.cover_url ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={r.cover_url} alt="" className="w-full h-full object-cover" />
-                    ) : null}
+                <div className="p-4 space-y-2">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="space-y-1">
+                      <a href={r.listing_id ? `/listings/${r.listing_id}` : '#'} className="font-medium hover:underline">
+                        {r.listing_title ?? 'Объявление'}
+                      </a>
+                      <div className="text-sm text-muted-foreground">{r.listing_city ?? '—'}</div>
+                      <div className="text-xs">{safeDate(r.start_date)} — {safeDate(r.end_date)}</div>
+                    </div>
+
+                    <div className="text-right text-sm">
+                      <div className="font-semibold">{money(r.monthly_price)} / мес</div>
+                      {r.deposit ? <div className="text-muted-foreground">Залог: {money(r.deposit)}</div> : null}
+                      <div className="text-xs">
+                        <span className={
+                          r.status === 'approved' ? 'text-green-600' :
+                          r.status === 'declined' ? 'text-red-600' :
+                          r.status === 'cancelled' ? 'text-gray-500' : 'text-yellow-600'
+                        }>{r.status}</span>{' · '}
+                        <span className={
+                          r.payment_status === 'paid' ? 'text-green-600' :
+                          r.payment_status === 'refunded' ? 'text-gray-600' : 'text-yellow-600'
+                        }>{r.payment_status}</span>
+                      </div>
+                    </div>
                   </div>
 
-                  <div className="p-4 space-y-2">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="space-y-1">
-                        <a href={r.listing_id ? `/listings/${r.listing_id}` : '#'} className="font-medium hover:underline">
-                          {r.listing_title ?? 'Объявление'}
-                        </a>
-                        <div className="text-sm text-muted-foreground">{r.listing_city ?? '—'}</div>
-                        <div className="text-xs">
-                          {safeDate(r.start_date)} — {safeDate(r.end_date)}
-                        </div>
-                      </div>
-
-                      <div className="text-right text-sm">
-                        <div className="font-semibold">{money(r.monthly_price)} / мес</div>
-                        {r.deposit ? <div className="text-muted-foreground">Залог: {money(r.deposit)}</div> : null}
-                        <div className="text-xs">
-                          <span
-                            className={
-                              r.status === 'approved'
-                                ? 'text-green-600'
-                                : r.status === 'declined'
-                                ? 'text-red-600'
-                                : r.status === 'cancelled'
-                                ? 'text-gray-500'
-                                : 'text-yellow-600'
-                            }
-                          >
-                            {r.status}
-                          </span>
-                          {' · '}
-                          <span
-                            className={
-                              r.payment_status === 'paid'
-                                ? 'text-green-600'
-                                : r.payment_status === 'refunded'
-                                ? 'text-gray-600'
-                                : 'text-yellow-600'
-                            }
-                          >
-                            {r.payment_status}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="pt-2 flex flex-wrap gap-8 items-center">
-                      {/* если чат уже есть — просто ссылка (ВАЖНО: путь /chat/) */}
-                      {r.chat_id ? (
-                        <a href={`/chat/${r.chat_id}`} className="px-3 py-1 border rounded-md text-sm">
-                          Открыть чат
-                        </a>
-                      ) : r.listing_id && r.owner_id_for_chat ? (
-                        isSelf ? (
-                          <span className="text-xs text-muted-foreground">Чат недоступен (ваше объявление)</span>
-                        ) : (
-                          <OpenChatButton
-                            listingId={r.listing_id}
-                            otherUserId={r.owner_id_for_chat}
-                            label="Открыть чат"
-                          />
-                        )
-                      ) : null}
-                    </div>
+                  <div className="pt-2 flex flex-wrap gap-8 items-center">
+                    {r.chat_id ? (
+                      // ВАЖНО: единственное число
+                      <a href={`/chat/${r.chat_id}`} className="px-3 py-1 border rounded-md text-sm">
+                        Открыть чат
+                      </a>
+                    ) : r.listing_id ? (
+                      // otherUserId не обязателен: на сервере возьмём владельца объявления
+                      <OpenChatButton listingId={r.listing_id} label="Открыть чат" />
+                    ) : null}
                   </div>
                 </div>
               </div>
-            );
-          })}
+            </div>
+          ))}
         </div>
-      )}
-
-      {Array.isArray(rows) && rows.length === 0 && (
-        <div className="rounded-2xl border p-6 text-sm text-muted-foreground">Заявок пока нет.</div>
       )}
     </div>
   );
