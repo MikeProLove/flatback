@@ -1,62 +1,45 @@
 'use client';
 
-import { useRouter } from 'next/navigation';
 import { useState } from 'react';
-
-type Props = {
-  listingId: string;          // ID объявления (обязательно)
-  otherUserId?: string;       // ID второго участника (для «заявки на мои»)
-  label?: string;
-  className?: string;
-};
+import { useRouter } from 'next/navigation';
 
 export default function OpenChatButton({
   listingId,
-  otherUserId,
+  otherUserId,           // можно не передавать на странице объявления
   label = 'Открыть чат',
-  className,
-}: Props) {
-  const [loading, setLoading] = useState(false);
+  className = 'px-3 py-1 border rounded-md text-sm'
+}: {
+  listingId: string;
+  otherUserId?: string;
+  label?: string;
+  className?: string;
+}) {
+  const [busy, setBusy] = useState(false);
   const router = useRouter();
 
-  async function handle() {
-    if (loading) return;
-    setLoading(true);
+  async function open() {
+    if (busy) return;
+    setBusy(true);
     try {
       const res = await fetch('/api/chats/open', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ listingId, otherId: otherUserId ?? null }),
       });
-
-      const ct = res.headers.get('content-type') || '';
-      const data = ct.includes('application/json') ? await res.json() : { error: await res.text() };
-
-      if (!res.ok || !data?.chatId) {
-        const msg = data?.message || data?.error || 'Не удалось открыть чат';
-        // дружелюбный текст, если сработало ограничение "нельзя чатить с самим собой"
-        if (typeof msg === 'string' && msg.includes('chats_no_self')) {
-          throw new Error('Нельзя открыть чат с самим собой.');
-        }
-        throw new Error(msg);
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok || !j?.id) {
+        alert(j?.message || j?.error || 'Не удалось открыть чат');
+        return;
       }
-
-      // ВАЖНО: переходим на /chat/:id (в единственном числе)
-      router.push(`/chat/${data.chatId}`);
-    } catch (e: any) {
-      alert(e?.message || 'Не удалось открыть чат');
+      router.push(`/chat/${j.id}`);          // ← всегда в единственное число
     } finally {
-      setLoading(false);
+      setBusy(false);
     }
   }
 
   return (
-    <button
-      onClick={handle}
-      disabled={loading}
-      className={className ?? 'px-3 py-1 border rounded-md text-sm'}
-    >
-      {loading ? 'Открываем…' : label}
+    <button onClick={open} disabled={busy} className={className}>
+      {busy ? 'Открываем…' : label}
     </button>
   );
 }
