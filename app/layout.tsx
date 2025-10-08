@@ -1,17 +1,10 @@
+// app/layout.tsx
 import type { Metadata } from 'next';
-import {
-  ClerkProvider,
-  SignedIn,
-  SignedOut,
-  SignInButton,
-  SignUpButton,
-  UserButton,
-} from '@clerk/nextjs';
-
+import { ClerkProvider } from '@clerk/nextjs';
 import './globals.css';
 import 'maplibre-gl/dist/maplibre-gl.css';
 
-import MainNav from './(components)/MainNav';
+import HeaderNav from './(components)/HeaderNav';
 
 export const metadata: Metadata = {
   title: 'Flatback',
@@ -23,25 +16,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <ClerkProvider>
       <html lang="ru">
         <body>
-          <header className="flex items-center gap-4 px-4 py-3 border-b">
-            <MainNav />
-
-            <div className="ml-auto flex items-center gap-3">
-              <SignedOut>
-                <SignInButton mode="modal">
-                  <button className="px-2 py-1 border rounded">Войти</button>
-                </SignInButton>
-                <SignUpButton mode="modal">
-                  <button className="px-2 py-1 border rounded">Регистрация</button>
-                </SignUpButton>
-              </SignedOut>
-
-              <SignedIn>
-                <UserButton />
-              </SignedIn>
-            </div>
+          <header className="border-b">
+            <HeaderNav />
           </header>
-
           <main>{children}</main>
         </body>
       </html>
