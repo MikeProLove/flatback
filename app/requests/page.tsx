@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import ChatOpenButton from '@/app/listings/[id]/ui/ChatOpenButton';
 
 type Row = {
   id: string;
@@ -9,13 +10,15 @@ type Row = {
   start_date: string | null;
   end_date: string | null;
   monthly_price: number;
-  deposit: number;
+  deposit: number | null;
   created_at: string;
   listing_id: string | null;
-  owner_id: string | null;
+
+  // пришло из API
   listing_title: string | null;
   listing_city: string | null;
   cover_url: string | null;
+  owner_id_for_chat: string | null;
 };
 
 function money(val: number) {
@@ -30,25 +33,28 @@ function safeDate(d: any): string {
   const dt = new Date(String(d));
   return Number.isFinite(+dt) ? dt.toLocaleDateString('ru-RU') : '—';
 }
-const isUuid = (v: unknown): v is string =>
-  typeof v === 'string' &&
-  /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(v);
 
 export default function RequestsPage() {
   const [rows, setRows] = useState<Row[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
+  async function load() {
+    try {
+      setErr(null);
+      const res = await fetch('/api/requests/my', { cache: 'no-store' });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j?.message || j?.error || 'load_failed');
+      setRows(j.rows ?? []);
+    } catch (e: any) {
+      setErr(e?.message || 'Ошибка загрузки');
+      setRows([]);
+    }
+  }
+
   useEffect(() => {
     let alive = true;
     (async () => {
-      try {
-        const res = await fetch('/api/requests/my', { cache: 'no-store' });
-        if (!res.ok) throw new Error(await res.text());
-        const json = await res.json();
-        if (alive) setRows(json.rows ?? []);
-      } catch (e: any) {
-        if (alive) setErr(e?.message || 'Ошибка загрузки');
-      }
+      await load();
     })();
     return () => {
       alive = false;
@@ -99,7 +105,7 @@ export default function RequestsPage() {
                     <div className="flex items-start justify-between gap-2">
                       <div className="space-y-1">
                         <a
-                          href={isUuid(r.listing_id) ? `/listings/${r.listing_id}` : '#'}
+                          href={r.listing_id ? `/listings/${r.listing_id}` : '#'}
                           className="font-medium hover:underline"
                         >
                           {r.listing_title ?? 'Объявление'}
@@ -145,7 +151,13 @@ export default function RequestsPage() {
                       </div>
                     </div>
 
-                    <div className="pt-2 flex gap-8 items-center">
+                    <div className="pt-2 flex flex-wrap gap-8 items-center">
+                      {/* Кнопка чата: корректно открывает существующий или создаёт новый */}
+                      {r.listing_id && r.owner_id_for_chat ? (
+                        <ChatOpenButton ownerId={r.owner_id_for_chat} listingId={r.listing_id} />
+                      ) : null}
+
+                      {/* Отмена заявки в ожидании */}
                       {r.status === 'pending' ? (
                         <button
                           onClick={async () => {
@@ -163,13 +175,14 @@ export default function RequestsPage() {
                         </button>
                       ) : null}
 
+                      {/* Оплата при одобрении */}
                       {canPay ? (
                         <button
                           onClick={async () => {
                             const res = await fetch(`/api/bookings/${r.id}`, {
                               method: 'PATCH',
                               headers: { 'Content-Type': 'application/json' },
-                              body: JSON.stringify({ action: 'pay', method: 'card' }),
+                              body: JSON.stringify({ action: 'pay', method: 'card' }), // mock-оплата
                             });
                             if (res.ok) location.reload();
                             else alert('Оплата не прошла');
@@ -179,11 +192,6 @@ export default function RequestsPage() {
                           Оплатить {money(total)}
                         </button>
                       ) : null}
-
-                      {/* Кнопка чата */}
-                      <a href={`/chat/${r.id}`} className="text-sm underline">
-                        Чат
-                      </a>
                     </div>
                   </div>
                 </div>
