@@ -7,56 +7,75 @@ import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { getSupabaseAdmin } from '@/lib/supabase-admin';
 
-/**
- * Find-or-create чат между (ownerId ↔ currentUser) по конкретному listingId.
- * Требует UNIQUE(listing_id, owner_id, participant_id) в БД.
- */
 export async function POST(req: Request) {
   try {
     const { userId } = auth();
-    if (!userId) {
-      return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
-    }
+    if (!userId) return new NextResponse('Unauthorized', { status: 401 });
 
-    const payload = await req.json().catch(() => ({}));
-    const listingId = payload?.listingId as string | undefined;
-    const ownerId = payload?.ownerId as string | undefined;
+    const body = await req.json().catch(() => ({}));
+    const listingId: string | undefined = body?.listingId;
+    // допускаем разные имена поля для контрагента
+    const otherId: string | undefined =
+      body?.otherId || body?.participantId || body?.renterId;
 
-    if (!listingId || !ownerId) {
-      return NextResponse.json({ error: 'bad_request', message: 'listingId and ownerId are required' }, { status: 400 });
-    }
-    if (ownerId === userId) {
-      return NextResponse.json({ error: 'self_chat_forbidden' }, { status: 400 });
+    if (!listingId || !otherId) {
+      return NextResponse.json(
+        { error: 'bad_request', message: 'listingId и otherId обязательны' },
+        { status: 400 }
+      );
     }
 
     const sb = getSupabaseAdmin();
 
-    // upsert опирается на UNIQUE(listing_id, owner_id, participant_id)
-    const up = await sb
+    // определяем владельца объявления (owner чата)
+    const { data: L } = await sb
+      .from('listings')
+      .select('id, owner_id, user_id')
+      .eq('id', listingId)
+      .maybeSingle();
+
+    if (!L) return NextResponse.json({ error: 'not_found' }, { status: 404 });
+
+    const listingOwner = L.owner_id || L.user_id;
+    const chatOwner = listingOwner || userId; // владелец чата — владелец объявления (или текущий юзер, как fallback)
+    const participant = otherId;
+
+    // есть ли уже чат?
+    const existing = await sb
       .from('chats')
-      .upsert(
-        { listing_id: listingId, owner_id: ownerId, participant_id: userId },
-        { onConflict: 'listing_id,owner_id,participant_id' }
-      )
+      .select('id')
+      .eq('listing_id', listingId)
+      .eq('owner_id', chatOwner)
+      .eq('participant_id', participant)
+      .maybeSingle();
+
+    if (existing.data) {
+      return NextResponse.json({ id: existing.data.id });
+    }
+
+    // создаём новый
+    const ins = await sb
+      .from('chats')
+      .insert({
+        listing_id: listingId,
+        owner_id: chatOwner,
+        participant_id: participant,
+      })
       .select('id')
       .single();
 
-    if (up.error && !up.data) {
-      // fallback: найти вручную (на случай разных версий PostgREST)
-      const existed = await sb
-        .from('chats')
-        .select('id')
-        .eq('listing_id', listingId)
-        .eq('owner_id', ownerId)
-        .eq('participant_id', userId)
-        .maybeSingle();
-
-      if (existed.data?.id) return NextResponse.json({ id: existed.data.id });
-      return NextResponse.json({ error: 'db_error', message: up.error.message }, { status: 500 });
+    if (ins.error) {
+      return NextResponse.json(
+        { error: 'db_error', message: ins.error.message },
+        { status: 500 }
+      );
     }
 
-    return NextResponse.json({ id: up.data!.id });
+    return NextResponse.json({ id: ins.data.id });
   } catch (e: any) {
-    return NextResponse.json({ error: 'internal', message: e?.message || 'unknown' }, { status: 500 });
+    return NextResponse.json(
+      { error: 'server_error', message: e?.message || 'internal' },
+      { status: 500 }
+    );
   }
 }
