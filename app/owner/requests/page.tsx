@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import OpenOrCreateChatBtn from './OpenOrCreateChatBtn';
+import OpenChatButton from '@/app/(components)/OpenChatButton';
 
 type Row = {
   id: string;
@@ -16,8 +16,9 @@ type Row = {
   listing_title: string | null;
   listing_city: string | null;
   cover_url: string | null;
-  renter_id_for_chat: string | null; // с кем переписка (арендатор)
-  chat_id: string | null;            // может быть null, если чата ещё нет
+
+  renter_id_for_chat: string | null; // собеседник
+  chat_id: string | null;            // если уже есть чат
 };
 
 function money(n?: number | null) {
@@ -32,7 +33,6 @@ function money(n?: number | null) {
     return `${Math.round(v)} ₽`;
   }
 }
-
 const safeDate = (d: any) => {
   const dt = new Date(String(d));
   return Number.isFinite(+dt) ? dt.toLocaleDateString('ru-RU') : '—';
@@ -143,17 +143,16 @@ export default function OwnerRequestsPage() {
                   </div>
 
                   <div className="pt-2 flex flex-wrap gap-8 items-center">
-                    {/* Кнопка: откроет существующий чат, либо создаст и перейдёт */}
-                    {r.listing_id && r.renter_id_for_chat ? (
-                      <OpenOrCreateChatBtn
-                        chatId={r.chat_id || undefined}
-                        listingId={r.listing_id}
-                        otherId={r.renter_id_for_chat}
-                      />
-                    ) : r.chat_id ? (
+                    {r.chat_id ? (
                       <a href={`/chat/${r.chat_id}`} className="px-3 py-1 border rounded-md text-sm">
                         Открыть чат
                       </a>
+                    ) : r.listing_id && r.renter_id_for_chat ? (
+                      <OpenChatButton
+                        listingId={r.listing_id}
+                        otherUserId={r.renter_id_for_chat}
+                        label="Открыть чат"
+                      />
                     ) : null}
                   </div>
                 </div>
