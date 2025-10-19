@@ -7,48 +7,89 @@ import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { getSupabaseAdmin } from '@/lib/supabase-admin';
 
+// Утилита: делает массив уникальным без Set-итерации (совместимо с ES5 таргетом)
+function uniq<T>(arr: T[]) {
+  const seen = new Set<T>();
+  const out: T[] = [];
+  for (const x of arr) if (!seen.has(x)) { seen.add(x); out.push(x); }
+  return out;
+}
+
 export async function GET() {
   const { userId } = auth();
   if (!userId) return new NextResponse('Unauthorized', { status: 401 });
 
   const sb = getSupabaseAdmin();
 
-  // 1) Берём мои бронирования (я — заявитель)
-  const { data: bookings, error } = await sb
-    .from('bookings')
-    .select('id, status, payment_status, start_date, end_date, monthly_price, deposit, created_at, listing_id')
-    .eq('user_id', userId) // <-- если у вас другое имя колонки – поменяйте тут один раз
-    .order('created_at', { ascending: false });
+  // --- 1) Пробуем взять заявки, у которых есть колонка user_id === я
+  let bookings: any[] = [];
+  let needFallback = false;
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  {
+    const q = await sb
+      .from('bookings')
+      .select('id, status, payment_status, start_date, end_date, monthly_price, deposit, created_at, listing_id, user_id')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false });
 
-  const listingIds = Array.from(new Set((bookings ?? []).map(b => b.listing_id).filter(Boolean))) as string[];
+    if (q.error) {
+      // если колонки нет — уйдём на fallback
+      needFallback = /column .*user_id .*does not exist/i.test(q.error.message) || q.error.code === '42703';
+    } else {
+      bookings = q.data ?? [];
+    }
+  }
 
-  // 2) Подтягиваем объявления
+  // --- 2) Fallback: если колонки user_id нет,
+  // считаем «мои заявки» как заявки по объявлениям, по которым у меня есть чат «я = participant»
+  if (needFallback) {
+    // мои чаты как участник
+    const { data: myChats } = await sb
+      .from('chats')
+      .select('listing_id')
+      .eq('participant_id', userId);
+
+    const listingIds = uniq((myChats ?? []).map(c => c.listing_id).filter(Boolean));
+    if (listingIds.length) {
+      const q2 = await sb
+        .from('bookings')
+        .select('id, status, payment_status, start_date, end_date, monthly_price, deposit, created_at, listing_id')
+        .in('listing_id', listingIds)
+        .order('created_at', { ascending: false });
+      bookings = q2.data ?? [];
+    }
+  }
+
+  const listingIds = uniq((bookings ?? []).map(b => b.listing_id).filter(Boolean));
+
+  // --- 3) Подтягиваем инфо объявлений (заголовок/город + владелец)
   const { data: listings } = await sb
     .from('listings')
     .select('id, title, city, owner_id, user_id')
     .in('id', listingIds);
 
   const listMap = new Map<string, { title: string | null; city: string | null; owner: string | null }>();
-  (listings ?? []).forEach(l => {
-    listMap.set(l.id, { title: l.title ?? null, city: l.city ?? null, owner: (l.owner_id || l.user_id) ?? null });
-  });
+  (listings ?? []).forEach(l => listMap.set(l.id, {
+    title: l.title ?? null,
+    city: l.city ?? null,
+    owner: (l.owner_id || l.user_id) ?? null,
+  }));
 
-  // 3) Обложки
-  let covers = new Map<string, string>();
+  // --- 4) Обложки
+  const covers = new Map<string, string>();
   if (listingIds.length) {
     const { data: photos } = await sb
       .from('listing_photos')
       .select('listing_id, url, sort_order')
       .in('listing_id', listingIds)
       .order('sort_order', { ascending: true });
+
     (photos ?? []).forEach(p => {
       if (!covers.has(p.listing_id)) covers.set(p.listing_id, p.url ?? '');
     });
   }
 
-  // 4) chat_id (ищем по связке listing + {владелец, я})
+  // --- 5) chat_id (ищем чат по связке listing + владелец + я)
   const chatIdByListing = new Map<string, string>();
   for (const lid of listingIds) {
     const owner = listMap.get(lid)?.owner;
