@@ -15,19 +15,11 @@ export async function POST(req: Request) {
     const body = await req.json().catch(() => ({}));
     const listingId: string | undefined = body?.listingId;
     const otherId: string | undefined =
-      body?.otherId || body?.participantId || body?.renterId;
+      body?.otherId ?? body?.participantId ?? body?.renterId;
 
-    if (!listingId || !otherId) {
+    if (!listingId) {
       return NextResponse.json(
-        { error: 'bad_request', message: 'listingId и otherId обязательны' },
-        { status: 400 }
-      );
-    }
-
-    // запрет self-chat
-    if (otherId === userId) {
-      return NextResponse.json(
-        { error: 'self_chat', message: 'Нельзя открыть чат с самим собой' },
+        { error: 'bad_request', message: 'listingId обязателен' },
         { status: 400 }
       );
     }
@@ -35,28 +27,37 @@ export async function POST(req: Request) {
     const sb = getSupabaseAdmin();
 
     // найдём владельца объявления
-    const { data: L, error: le } = await sb
+    const { data: L, error: Lerr } = await sb
       .from('listings')
       .select('id, owner_id, user_id')
       .eq('id', listingId)
       .maybeSingle();
 
-    if (le || !L) {
+    if (Lerr || !L) {
       return NextResponse.json({ error: 'not_found' }, { status: 404 });
     }
 
-    const chatOwner = (L.owner_id || L.user_id)!; // владелец объявления
-    const participant = otherId;
+    const listingOwner = L.owner_id || L.user_id;
+    if (!listingOwner) {
+      return NextResponse.json(
+        { error: 'bad_listing', message: 'у объявления нет владельца' },
+        { status: 400 }
+      );
+    }
 
-    // ещё одна защита от self-chat, на случай кривых данных
-    if (chatOwner === participant) {
+    // участники
+    const chatOwner = listingOwner;
+    let participant = otherId ?? (userId === listingOwner ? undefined : listingOwner);
+
+    // запретим чат с самим собой/неопределённого собеседника
+    if (!participant || participant === userId) {
       return NextResponse.json(
         { error: 'self_chat', message: 'Нельзя открыть чат с самим собой' },
         { status: 400 }
       );
     }
 
-    // есть ли уже такой чат?
+    // есть ли уже чат?
     const existing = await sb
       .from('chats')
       .select('id')
@@ -65,9 +66,7 @@ export async function POST(req: Request) {
       .eq('participant_id', participant)
       .maybeSingle();
 
-    if (existing.data) {
-      return NextResponse.json({ id: existing.data.id });
-    }
+    if (existing.data) return NextResponse.json({ id: existing.data.id });
 
     // создаём
     const ins = await sb
