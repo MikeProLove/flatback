@@ -23,32 +23,38 @@ export async function POST(req: Request) {
         { status: 400 }
       );
     }
+
+    // запрет self-chat
     if (otherId === userId) {
       return NextResponse.json(
-        { error: 'self_forbidden', message: 'Нельзя открыть чат с самим собой' },
+        { error: 'self_chat', message: 'Нельзя открыть чат с самим собой' },
         { status: 400 }
       );
     }
 
     const sb = getSupabaseAdmin();
 
-    // узнаём владельца объявления
+    // найдём владельца объявления
     const { data: L, error: le } = await sb
       .from('listings')
       .select('id, owner_id, user_id')
       .eq('id', listingId)
       .maybeSingle();
 
-    if (le || !L) return NextResponse.json({ error: 'not_found' }, { status: 404 });
-
-    const listingOwner = L.owner_id || L.user_id;
-    if (!listingOwner) {
-      return NextResponse.json({ error: 'no_owner' }, { status: 400 });
+    if (le || !L) {
+      return NextResponse.json({ error: 'not_found' }, { status: 404 });
     }
 
-    // кто владелец чата? владелец объявления
-    const chatOwner = listingOwner;
+    const chatOwner = (L.owner_id || L.user_id)!; // владелец объявления
     const participant = otherId;
+
+    // ещё одна защита от self-chat, на случай кривых данных
+    if (chatOwner === participant) {
+      return NextResponse.json(
+        { error: 'self_chat', message: 'Нельзя открыть чат с самим собой' },
+        { status: 400 }
+      );
+    }
 
     // есть ли уже такой чат?
     const existing = await sb
@@ -75,16 +81,6 @@ export async function POST(req: Request) {
       .single();
 
     if (ins.error) {
-      // пробуем на случай гонки получить существующий
-      const again = await sb
-        .from('chats')
-        .select('id')
-        .eq('listing_id', listingId)
-        .eq('owner_id', chatOwner)
-        .eq('participant_id', participant)
-        .maybeSingle();
-      if (again.data) return NextResponse.json({ id: again.data.id });
-
       return NextResponse.json(
         { error: 'db_error', message: ins.error.message },
         { status: 500 }
