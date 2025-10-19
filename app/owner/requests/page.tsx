@@ -18,6 +18,7 @@ type Row = {
   cover_url: string | null;
   renter_id_for_chat: string | null;
   chat_id: string | null;
+  other_user_id: string | null;
 };
 
 function money(n?: number | null) {
