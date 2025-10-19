@@ -2,15 +2,13 @@
 
 import { useState } from 'react';
 
-export default function BookWidget({
-  listingId,
-  price,
-  deposit,
-}: {
+export default function BookWidget(props: {
   listingId: string;
   price: number;
   deposit: number | null;
 }) {
+  const { listingId, price, deposit } = props;
+
   const [start, setStart] = useState<string>('');
   const [end, setEnd] = useState<string>('');
   const [busy, setBusy] = useState(false);
@@ -30,70 +28,56 @@ export default function BookWidget({
           listingId,
           start_date: start || null,
           end_date: end || null,
+          monthly_price: price,
+          deposit: deposit ?? null,
         }),
       });
-
       const j = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(j?.message || j?.error || 'Не удалось отправить заявку');
+      if (!res.ok) throw new Error(j?.message || j?.error || 'Не удалось отправить');
 
       setOk('Заявка отправлена!');
-      // мягкий редирект в "Мои заявки", чтобы пользователь сразу видел результат
+      // можно сразу перекинуть в «Мои заявки»
       setTimeout(() => {
         window.location.href = '/requests';
-      }, 400);
+      }, 600);
     } catch (e: any) {
-      setErr(e?.message || 'Ошибка отправки');
+      setErr(e?.message || 'Ошибка');
     } finally {
       setBusy(false);
     }
   }
 
-  const money = (n?: number | null) =>
-    new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', maximumFractionDigits: 0 }).format(
-      Number(n ?? 0)
-    );
-
   return (
     <div className="space-y-3">
       <div className="text-sm text-muted-foreground">
-        Стоимость: <b>{money(price)}</b>
-        {typeof deposit === 'number' ? (
-          <span> · Залог: <b>{money(deposit)}</b></span>
-        ) : null}
+        Укажите желаемые даты (необязательно) и отправьте заявку владельцу.
       </div>
 
-      <div className="flex flex-col gap-2">
-        <label className="text-sm">
-          Дата заезда
-          <input
-            type="date"
-            value={start}
-            onChange={(e) => setStart(e.target.value)}
-            className="block mt-1 w-full border rounded-md px-3 py-2"
-          />
-        </label>
-
-        <label className="text-sm">
-          Дата выезда
-          <input
-            type="date"
-            value={end}
-            onChange={(e) => setEnd(e.target.value)}
-            className="block mt-1 w-full border rounded-md px-3 py-2"
-          />
-        </label>
+      <div className="grid grid-cols-2 gap-2">
+        <input
+          type="date"
+          value={start}
+          onChange={(e) => setStart(e.target.value)}
+          className="px-3 py-2 border rounded-md"
+        />
+        <input
+          type="date"
+          value={end}
+          onChange={(e) => setEnd(e.target.value)}
+          className="px-3 py-2 border rounded-md"
+        />
       </div>
-
-      {err ? <div className="text-sm text-red-600">{err}</div> : null}
-      {ok ? <div className="text-sm text-green-700">{ok}</div> : null}
 
       <button
         onClick={submit}
         disabled={busy}
-        className="w-full px-4 py-2 border rounded-md hover:bg-muted disabled:opacity-60"
+        className="w-full px-3 py-2 border rounded-md hover:bg-muted disabled:opacity-50"
       >
         {busy ? 'Отправляем…' : 'Отправить заявку'}
       </button>
+
+      {err ? <div className="text-sm text-red-600">{err}</div> : null}
+      {ok ? <div className="text-sm text-green-600">{ok}</div> : null}
     </div>
   );
 }
