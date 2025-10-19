@@ -2,28 +2,41 @@
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
-import Image from 'next/image';
+import * as React from 'react';
 import Link from 'next/link';
 import OpenChatButton from '@/components/OpenChatButton';
 
-type Row = {
+type RequestRow = {
   id: string;
   listing_id: string | null;
-  status: 'pending' | 'approved' | 'declined' | 'cancelled';
-  payment_status: 'pending' | 'paid' | 'refunded';
+  // даты
   start_date: string | null;
   end_date: string | null;
+  // цены
   monthly_price: number | null;
   deposit: number | null;
-  created_at: string;
-
-  listing_title: string | null;
-  listing_city: string | null;
-  cover_url: string | null;
-
-  owner_id_for_chat: string | null;
-  chat_id: string | null;
+  // статусы
+  status: string | null;
+  payment_status: string | null;
+  // витринные данные объявления
+  listing_title?: string | null;
+  listing_city?: string | null;
+  listing_cover?: string | null;
+  // для чата (может отсутствовать)
+  other_id_for_chat?: string | null; // кого приглашать в чат
 };
+
+function fmtDateRange(a?: string | null, b?: string | null) {
+  if (!a || !b) return '—';
+  try {
+    const da = new Date(a);
+    const db = new Date(b);
+    const f = new Intl.DateTimeFormat('ru-RU');
+    return `${f.format(da)} — ${f.format(db)}`;
+  } catch {
+    return '—';
+  }
+}
 
 function money(n?: number | null, cur: string = 'RUB') {
   const v = Number(n ?? 0);
@@ -38,109 +51,138 @@ function money(n?: number | null, cur: string = 'RUB') {
   }
 }
 
-function formatDateRange(a?: string | null, b?: string | null) {
-  if (!a || !b) return null;
-  const s = new Date(a);
-  const e = new Date(b);
-  const fmt = new Intl.DateTimeFormat('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' });
-  return `${fmt.format(s)} — ${fmt.format(e)}`;
+async function fetchMyRequests(): Promise<{
+  rows: RequestRow[];
+  error?: string;
+}> {
+  try {
+    const res = await fetch('/api/requests/mine', {
+      cache: 'no-store',
+      headers: { Accept: 'application/json' },
+    });
+
+    const ct = res.headers.get('content-type') || '';
+    if (!res.ok) {
+      // попробуем достать сообщение
+      if (ct.includes('application/json')) {
+        const j = await res.json().catch(() => ({}));
+        return { rows: [], error: j?.message || j?.error || `HTTP ${res.status}` };
+      } else {
+        const t = await res.text().catch(() => '');
+        return { rows: [], error: t?.slice(0, 300) || `HTTP ${res.status}` };
+      }
+    }
+
+    if (ct.includes('application/json')) {
+      const j = (await res.json()) as { items?: RequestRow[] } | RequestRow[];
+      const rows = Array.isArray(j) ? (j as RequestRow[]) : (j.items ?? []);
+      return { rows: rows.filter(Boolean) };
+    }
+
+    // пришёл не JSON
+    const t = await res.text().catch(() => '');
+    return { rows: [], error: t?.slice(0, 300) || 'unexpected_response' };
+  } catch (e: any) {
+    return { rows: [], error: e?.message || 'network_error' };
+  }
 }
 
-export default async function Page() {
-  const res = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL ?? ''}/api/requests/mine`, {
-    cache: 'no-store',
-  });
-  const data = (await res.json()) as { rows?: Row[]; error?: string; message?: string };
-
-  if (data?.error) {
-    return (
-      <div className="mx-auto max-w-6xl px-4 py-8">
-        <h1 className="text-2xl font-semibold mb-4">Мои заявки</h1>
-        <div className="rounded-xl border p-4 text-red-600">
-          Ошибка: {data.error}
-          {data.message ? ` — ${data.message}` : null}
-        </div>
-      </div>
-    );
-  }
-
-  const rows = data.rows ?? [];
+export default async function RequestsPage() {
+  const { rows, error } = await fetchMyRequests();
 
   return (
-    <div className="mx-auto max-w-6xl px-4 py-8 space-y-4">
+    <div className="mx-auto max-w-5xl px-4 py-8 space-y-4">
       <h1 className="text-2xl font-semibold">Мои заявки</h1>
 
-      {rows.length === 0 ? (
-        <div className="rounded-xl border p-4 text-sm text-muted-foreground">
-          Заявок пока нет.
+      {/* Ошибка – не падаем, показываем аккуратно */}
+      {error ? (
+        <div className="rounded-lg border p-3 text-sm text-red-600">
+          Ошибка: {error}
         </div>
       ) : null}
 
-      {rows.map((r) => {
-        const period = formatDateRange(r.start_date, r.end_date);
+      {rows.length === 0 ? (
+        <div className="rounded-lg border p-4 text-sm text-muted-foreground">
+          Заявок пока нет.
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {rows.map((r) => {
+            const cover = r.listing_cover || '';
+            const title = r.listing_title || 'Объявление';
+            const city = r.listing_city || '—';
+            const dr = fmtDateRange(r.start_date, r.end_date);
 
-        return (
-          <div key={r.id} className="rounded-2xl border p-3 flex gap-4 items-stretch">
-            <div className="w-40 h-28 overflow-hidden rounded-lg bg-muted shrink-0">
-              {r.cover_url ? (
-                <Image
-                  src={r.cover_url}
-                  alt={r.listing_title ?? 'Фото'}
-                  width={320}
-                  height={224}
-                  className="w-full h-full object-cover"
-                />
-              ) : null}
-            </div>
+            return (
+              <div
+                key={r.id}
+                className="flex gap-4 rounded-xl border p-3 md:p-4"
+              >
+                {/* картинка (простая <img>, чтобы не упасть из-за доменов для next/image) */}
+                <div className="w-36 h-24 shrink-0 overflow-hidden rounded-lg bg-muted">
+                  {cover ? (
+                    <img
+                      src={cover}
+                      alt={title}
+                      className="h-full w-full object-cover"
+                      loading="lazy"
+                    />
+                  ) : null}
+                </div>
 
-            <div className="flex-1 min-w-0">
-              <div className="font-semibold leading-tight">{r.listing_title ?? 'Объявление'}</div>
-              <div className="text-sm text-muted-foreground">{r.listing_city ?? '—'}</div>
-              {period ? <div className="text-sm">{period}</div> : null}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="font-medium truncate">{title}</div>
+                      <div className="text-sm text-muted-foreground">{city}</div>
+                      <div className="text-sm text-muted-foreground">{dr}</div>
+                    </div>
 
-              <div className="mt-2 text-xs text-muted-foreground">
-                {r.chat_id || (r.listing_id && r.owner_id_for_chat) ? (
-                  <span>Для уточнений используйте чат.</span>
-                ) : (
-                  <span>Чат появится, когда у заявки будет известен владелец.</span>
-                )}
+                    <div className="text-right text-sm">
+                      {r.monthly_price != null ? (
+                        <div className="font-medium">{money(r.monthly_price)}</div>
+                      ) : null}
+                      {r.deposit != null ? (
+                        <div className="text-muted-foreground">
+                          Залог: {money(r.deposit)}
+                        </div>
+                      ) : null}
+                      <div className="text-xs text-amber-700">
+                        {r.status ?? 'pending'} · {r.payment_status ?? 'pending'}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* действия */}
+                  <div className="mt-2 flex items-center gap-2">
+                    {r.listing_id ? (
+                      <Link
+                        href={`/listings/${r.listing_id}`}
+                        className="text-sm underline"
+                      >
+                        Открыть объявление
+                      </Link>
+                    ) : null}
+
+                    {/* Кнопка чата – только если известен другой участник */}
+                    {r.other_id_for_chat ? (
+                      <OpenChatButton
+                        listingId={r.listing_id!}
+                        otherId={r.other_id_for_chat}
+                        label="Открыть чат"
+                      />
+                    ) : (
+                      <div className="text-sm text-muted-foreground">
+                        Чат появится, когда у заявки будет известен владелец.
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
-            </div>
-
-            <div className="shrink-0 text-right flex flex-col items-end gap-2">
-              <div className="text-sm">
-                {r.monthly_price != null ? <b>{money(r.monthly_price)}</b> : null}
-                {r.deposit != null ? (
-                  <span className="text-muted-foreground ml-2">
-                    Залог: {money(r.deposit)}
-                  </span>
-                ) : null}
-              </div>
-
-              <div className="text-xs text-amber-600">
-                {r.status} · {r.payment_status}
-              </div>
-
-              {r.chat_id ? (
-                <Link
-                  href={`/chat/${r.chat_id}`}
-                  className="px-3 py-1 border rounded-md text-sm hover:bg-muted"
-                >
-                  Открыть чат
-                </Link>
-              ) : r.listing_id && r.owner_id_for_chat ? (
-                <OpenChatButton
-                  listingId={r.listing_id}
-                  otherId={r.owner_id_for_chat}
-                  label="Открыть чат"
-                />
-              ) : (
-                <div className="text-xs text-muted-foreground">Чат недоступен</div>
-              )}
-            </div>
-          </div>
-        );
-      })}
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
