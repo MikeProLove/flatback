@@ -1,90 +1,57 @@
-// app/api/requests/mine/route.ts
-export const runtime = 'nodejs';
-export const dynamic = 'force-dynamic';
-export const revalidate = 0;
-
 import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { getSupabaseAdmin } from '@/lib/supabase-admin';
 
-type Row = {
-  id: string;
-  listing_id: string | null;
-  status: string;
-  payment_status: string;
-  start_date: string | null;
-  end_date: string | null;
-  monthly_price: number | null;
-  deposit: number | null;
-  created_at: string;
-};
-
 export async function GET() {
-  try {
-    const { userId } = auth();
-    if (!userId) return new NextResponse('Unauthorized', { status: 401 });
+  const { userId } = auth();
+  if (!userId) return NextResponse.json({ message: 'not_authenticated' }, { status: 401 });
 
-    const sb = getSupabaseAdmin();
+  const sb = getSupabaseAdmin();
 
-    // 1) заявки текущего пользователя как арендатора
-    const q = await sb
-      .from('bookings_base')
-      .select(
-        'id, listing_id, status, payment_status, start_date, end_date, monthly_price, deposit, created_at'
-      )
-      .eq('renter_id', userId)
-      .order('created_at', { ascending: false });
+  // заявки созданные мной
+  const { data: bookings, error } = await sb
+    .from('bookings')
+    .select('id, listing_id, status, payment_status, start_date, end_date, created_at, monthly_price, deposit')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false });
 
-    if (q.error) {
-      return NextResponse.json({ error: 'db_error', message: q.error.message }, { status: 500 });
-    }
+  if (error) return NextResponse.json({ message: 'db_error' }, { status: 500 });
 
-    const rows = (q.data ?? []) as Row[];
+  const listingIds = Array.from(new Set((bookings ?? []).map(b => b.listing_id).filter(Boolean)));
 
-    // 2) собираем listing ids
-    const ids: string[] = [];
-    for (let i = 0; i < rows.length; i++) {
-      const lid = rows[i].listing_id;
-      if (lid && ids.indexOf(lid) === -1) ids.push(lid);
-    }
+  // подтащим заголовок/город/владельца + первую фотку
+  const { data: listings } = await sb
+    .from('listings')
+    .select('id, title, city, owner_id, user_id')
+    .in('id', listingIds);
 
-    // 3) достаём инфо по объявлениям и обложки
-    const listingMap = new Map<string, { title: string | null; city: string | null }>();
-    if (ids.length) {
-      const lq = await sb
-        .from('listings')
-        .select('id, title, city')
-        .in('id', ids);
-      const L = lq.data ?? [];
-      for (let i = 0; i < L.length; i++) {
-        listingMap.set(L[i].id, { title: L[i].title ?? null, city: L[i].city ?? null });
-      }
-    }
+  const { data: photos } = await sb
+    .from('listing_photos')
+    .select('listing_id, url, sort_order')
+    .in('listing_id', listingIds);
 
-    // 4) обложки (первая фотка)
-    const covers = new Map<string, string>();
-    for (let i = 0; i < ids.length; i++) {
-      const lid = ids[i];
-      const ph = await sb
-        .from('listing_photos')
-        .select('url')
-        .eq('listing_id', lid)
-        .order('sort_order', { ascending: true })
-        .limit(1);
-      const u = ph.data?.[0]?.url;
-      if (u) covers.set(lid, u);
-    }
+  const coverByListing = new Map<string, string | null>();
+  (listingIds || []).forEach((id) => {
+    const p = (photos || [])
+      .filter((ph) => ph.listing_id === id && ph.url)
+      .sort((a, b) => (a.sort_order ?? 1e9) - (b.sort_order ?? 1e9));
+    coverByListing.set(id, p[0]?.url ?? null);
+  });
 
-    // 5) собираем ответ
-    const res = rows.map((r) => ({
-      ...r,
-      listing_title: r.listing_id ? (listingMap.get(r.listing_id)?.title ?? null) : null,
-      listing_city: r.listing_id ? (listingMap.get(r.listing_id)?.city ?? null) : null,
-      cover_url: r.listing_id ? (covers.get(r.listing_id) ?? null) : null,
-    }));
+  const listingById = new Map<string, any>();
+  (listings || []).forEach((l) => listingById.set(l.id, l));
 
-    return NextResponse.json({ rows: res });
-  } catch (e: any) {
-    return NextResponse.json({ error: 'server_error', message: e?.message || 'internal' }, { status: 500 });
-  }
+  const rows = (bookings || []).map((b) => {
+    const l = listingById.get(b.listing_id);
+    return {
+      ...b,
+      listing_title: l?.title ?? 'Объявление',
+      listing_city: l?.city ?? null,
+      cover_url: coverByListing.get(b.listing_id) ?? null,
+      // для чата нам нужен владелец объявления
+      owner_id_for_chat: l?.owner_id || l?.user_id || null,
+    };
+  });
+
+  return NextResponse.json({ rows });
 }
