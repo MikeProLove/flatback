@@ -17,7 +17,7 @@ type BookingRow = {
   deposit: number | null;
   created_at: string;
   listing_id: string | null;
-  user_id: string | null; // арендатор (тот, кто подал заявку)
+  user_id: string | null; // арендатор (кто подал заявку)
 };
 
 export async function GET() {
@@ -27,26 +27,29 @@ export async function GET() {
 
     const sb = getSupabaseAdmin();
 
-    // 1) Мои объявления (я владелец)
-    const { data: myListings, error: listErr } = await sb
+    // 1) мои объявления (я владелец)
+    const { data: myListingsData, error: listErr } = await sb
       .from('listings')
       .select('id')
       .or(`owner_id.eq.${userId},user_id.eq.${userId}`);
 
     if (listErr) {
-      return NextResponse.json({ error: 'db_error', message: listErr.message }, { status: 500 });
+      return NextResponse.json(
+        { error: 'db_error', message: listErr.message },
+        { status: 500 }
+      );
     }
 
-    const listingIds: string[] = [];
-    for (const l of myListings ?? []) {
-      if (l.id && !listingIds.includes(l.id)) listingIds.push(l.id);
-    }
+    const listingIds = (Array.isArray(myListingsData) ? myListingsData : [])
+      .map((l: any) => l?.id)
+      .filter(Boolean) as string[];
+
     if (listingIds.length === 0) {
       return NextResponse.json({ rows: [] });
     }
 
-    // 2) Все заявки на мои объявления
-    const { data: bookings, error: bErr } = await sb
+    // 2) все заявки на мои объявления
+    const { data: bookingsData, error: bErr } = await sb
       .from('bookings')
       .select(
         [
@@ -66,82 +69,81 @@ export async function GET() {
       .order('created_at', { ascending: false });
 
     if (bErr) {
-      return NextResponse.json({ error: 'db_error', message: bErr.message }, { status: 500 });
+      return NextResponse.json(
+        { error: 'db_error', message: bErr.message },
+        { status: 500 }
+      );
     }
 
-    const rows = (bookings ?? []) as BookingRow[];
+    const rows: BookingRow[] = Array.isArray(bookingsData) ? (bookingsData as any) : [];
 
-    // 3) Информация по объявлениям (title/city/cover)
-    let listingInfo = new Map<
+    // 3) инфо по объявлениям (title/city/cover)
+    const listingInfo = new Map<
       string,
       { title: string | null; city: string | null; cover_url: string | null }
     >();
 
-    {
-      const { data: lwc } = await sb
-        .from('listings_with_cover')
-        .select('id,title,city,cover_url')
-        .in('id', listingIds);
+    // сперва пробуем вьюху с cover_url
+    const { data: lwc, error: lwcErr } = await sb
+      .from('listings_with_cover')
+      .select('id,title,city,cover_url')
+      .in('id', listingIds);
 
-      if (lwc && lwc.length) {
-        for (const l of lwc) {
-          listingInfo.set(l.id, {
-            title: l.title ?? null,
-            city: l.city ?? null,
-            cover_url: l.cover_url ?? null,
-          });
-        }
-      } else {
-        // фоллбэк по storage
-        for (const lid of listingIds) {
-          let cover: string | null = null;
-          // владельца можно не искать: путь строили из owner/id, но для простоты пробуем без owner
-          // (если нужно — отдельно подтянуть owner_id из listings)
-          const { data: oneL } = await sb.from('listings').select('owner_id').eq('id', lid).maybeSingle();
-          const prefix = `${oneL?.owner_id ?? ''}/${lid}`;
+    if (!lwcErr && Array.isArray(lwc) && lwc.length) {
+      for (const l of lwc) {
+        listingInfo.set(l.id, {
+          title: l.title ?? null,
+          city: l.city ?? null,
+          cover_url: l.cover_url ?? null,
+        });
+      }
+    } else {
+      // фоллбэк: достаём title/city и первую фотку из storage
+      for (const lid of listingIds) {
+        // кто владелец — чтобы собрать storage путь
+        const { data: meta } = await sb
+          .from('listings')
+          .select('title,city,owner_id')
+          .eq('id', lid)
+          .maybeSingle();
+
+        let cover: string | null = null;
+        if (meta?.owner_id) {
+          const prefix = `${meta.owner_id}/${lid}`;
           const listed = await sb.storage.from('listings').list(prefix, { limit: 1 });
           const first = listed?.data?.[0];
           if (first) {
             const path = `${prefix}/${first.name}`;
             cover = sb.storage.from('listings').getPublicUrl(path).data.publicUrl;
           }
-          const { data: meta } = await sb.from('listings').select('title,city').eq('id', lid).maybeSingle();
-          listingInfo.set(lid, {
-            title: meta?.title ?? null,
-            city: meta?.city ?? null,
-            cover_url: cover,
-          });
         }
+
+        listingInfo.set(lid, {
+          title: meta?.title ?? null,
+          city: meta?.city ?? null,
+          cover_url: cover,
+        });
       }
     }
 
-    // 4) Подтянем id чатов владелец↔арендатор по конкретному объявлению
-    // По нашей логике owner чата = владелец объявления
-    const renters: string[] = [];
-    for (const r of rows) {
-      const uid = r.user_id;
-      if (uid && !renters.includes(uid)) renters.push(uid);
+    // 4) чаты по паре (listing_id + participant_id), где owner = текущий пользователь
+    const { data: chatsData } = await sb
+      .from('chats')
+      .select('id, listing_id, owner_id, participant_id')
+      .in('listing_id', listingIds)
+      .eq('owner_id', userId);
+
+    const chatMap = new Map<string, string>(); // `${listing_id}__${participant_id}` -> chat_id
+    for (const c of chatsData ?? []) {
+      chatMap.set(`${c.listing_id}__${c.participant_id}`, c.id);
     }
 
-    let chatMap = new Map<string, string>(); // key: `${listing_id}__${participant_id}` -> chat_id
-    {
-      const { data: chats } = await sb
-        .from('chats')
-        .select('id, listing_id, owner_id, participant_id')
-        .in('listing_id', listingIds)
-        .eq('owner_id', userId);
-
-      for (const c of chats ?? []) {
-        const key = `${c.listing_id}__${c.participant_id}`;
-        chatMap.set(key, c.id);
-      }
-    }
-
-    // 5) Склеиваем ответ под UI «Заявки на мои»
+    // 5) ответ для UI
     const result = rows.map((r) => {
       const info = r.listing_id ? listingInfo.get(r.listing_id) : undefined;
-      const renter = r.user_id ?? null; // ← участник чата, «арендатор»
-      const chat_id = r.listing_id && renter ? chatMap.get(`${r.listing_id}__${renter}`) ?? null : null;
+      const renter = r.user_id ?? null;
+      const chat_id =
+        r.listing_id && renter ? chatMap.get(`${r.listing_id}__${renter}`) ?? null : null;
 
       return {
         id: r.id,
@@ -158,13 +160,16 @@ export async function GET() {
         listing_city: info?.city ?? null,
         cover_url: info?.cover_url ?? null,
 
-        renter_id_for_chat: renter, // чтобы кнопка "Открыть чат" работала
+        renter_id_for_chat: renter,
         chat_id,
       };
     });
 
     return NextResponse.json({ rows: result });
   } catch (e: any) {
-    return NextResponse.json({ error: 'server_error', message: e?.message || 'internal' }, { status: 500 });
+    return NextResponse.json(
+      { error: 'server_error', message: e?.message || 'internal' },
+      { status: 500 }
+    );
   }
 }
