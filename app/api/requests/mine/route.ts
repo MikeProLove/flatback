@@ -17,8 +17,8 @@ type Booking = {
   monthly_price: number | null;
   deposit: number | null;
   created_at: string;
-  renter_id?: string | null; // может не быть
-  user_id?: string | null;   // может не быть
+  renter_id?: string | null; // может не существовать в схеме
+  user_id?: string | null;   // может не существовать в схеме
 };
 
 export async function GET() {
@@ -28,9 +28,8 @@ export async function GET() {
 
     const sb = getSupabaseAdmin();
 
-    // 1) Пытаемся выбрать заявки, где заявитель = текущий пользователь
-    // Безопасно: сначала пробуем renter_id, если такой колонки нет — пробуем user_id.
-    let q = await sb
+    // --- 1) пробуем по renter_id ---
+    const qRenter = await sb
       .from('bookings')
       .select(
         'id, listing_id, status, payment_status, start_date, end_date, monthly_price, deposit, created_at, renter_id, user_id'
@@ -38,44 +37,51 @@ export async function GET() {
       .eq('renter_id', userId)
       .order('created_at', { ascending: false });
 
-    if (q.error && /column .*renter_id.* does not exist/i.test(q.error.message)) {
-      q = await sb
+    let bookings: Booking[] = [];
+
+    if (qRenter.error && /column .*renter_id.* does not exist/i.test(qRenter.error.message)) {
+      // --- 2) схема без renter_id → fallback по user_id ---
+      const qUser = await sb
         .from('bookings')
         .select(
           'id, listing_id, status, payment_status, start_date, end_date, monthly_price, deposit, created_at, user_id'
         )
         .eq('user_id', userId)
         .order('created_at', { ascending: false });
-    }
 
-    if (q.error) {
+      if (qUser.error) {
+        return NextResponse.json(
+          { error: 'db_error', message: qUser.error.message },
+          { status: 500 }
+        );
+      }
+      bookings = (qUser.data ?? []) as unknown as Booking[];
+    } else if (qRenter.error) {
       return NextResponse.json(
-        { error: 'db_error', message: q.error.message },
+        { error: 'db_error', message: qRenter.error.message },
         { status: 500 }
       );
+    } else {
+      bookings = (qRenter.data ?? []) as unknown as Booking[];
     }
 
-    const bookings = (q.data ?? []) as Booking[];
     if (!bookings.length) {
       return NextResponse.json({ rows: [] });
     }
 
-    // 2) Собираем id объявлений
+    // --- 3) инфо по объявлениям ---
     const listingIds = Array.from(
       new Set(bookings.map((b) => b.listing_id).filter(Boolean))
     ) as string[];
 
-    // 3) Подтягиваем инфо по объявлениям (заголовок/город/владелец)
     const { data: listings } = await sb
       .from('listings')
       .select('id, title, city, owner_id, user_id')
       .in('id', listingIds);
 
-    const listingMap = new Map(
-      (listings ?? []).map((l) => [l.id, l] as const)
-    );
+    const listingMap = new Map((listings ?? []).map((l) => [l.id, l] as const));
 
-    // 4) Обложки (первое фото)
+    // --- 4) обложки ---
     const { data: photos } = await sb
       .from('listing_photos')
       .select('listing_id, url, sort_order')
@@ -83,11 +89,11 @@ export async function GET() {
       .order('sort_order', { ascending: true });
 
     const coverMap = new Map<string, string>();
-    (photos ?? []).forEach((p) => {
+    (photos ?? []).forEach((p: any) => {
       if (p.url && !coverMap.has(p.listing_id)) coverMap.set(p.listing_id, p.url);
     });
 
-    // 5) Готовим ответ
+    // --- 5) ответ ---
     const rows = bookings.map((b) => {
       const L = b.listing_id ? listingMap.get(b.listing_id) : null;
       return {
@@ -99,13 +105,16 @@ export async function GET() {
         monthly_price: b.monthly_price ?? 0,
         deposit: b.deposit,
         created_at: b.created_at,
+
         listing_id: b.listing_id,
         listing_title: L?.title ?? null,
         listing_city: L?.city ?? null,
         cover_url: b.listing_id ? coverMap.get(b.listing_id) ?? null : null,
-        // собеседник для чата: владелец объявления
+
+        // собеседник — владелец объявления
         other_id_for_chat: L?.owner_id || L?.user_id || null,
-        chat_id: null, // не ищем заранее — кнопка сама откроет/создаст
+
+        chat_id: null,
       };
     });
 
