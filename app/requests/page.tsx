@@ -17,6 +17,7 @@ type Row = {
   listing_city: string | null;
   cover_url: string | null;
   chat_id: string | null;
+  other_user_id: string | null;
 };
 
 const money = (n?: number | null) => {
