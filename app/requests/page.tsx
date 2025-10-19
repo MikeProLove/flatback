@@ -4,7 +4,7 @@ export const revalidate = 0;
 
 import Link from 'next/link';
 import OpenChatButton from '@/components/OpenChatButton';
-import { absoluteUrl } from '@/lib/absolute-url';
+import { apiFetch } from '@/lib/absolute-url';
 
 type Item = {
   id: string;
@@ -34,9 +34,10 @@ export default async function Page() {
   let errorMsg: string | null = null;
 
   try {
-    const res = await fetch(absoluteUrl('/api/requests/mine'), { cache: 'no-store' });
+    const res = await apiFetch('/api/requests/mine');
     if (!res.ok) {
-      errorMsg = `HTTP ${res.status}`;
+      const text = await res.text().catch(() => '');
+      errorMsg = `HTTP ${res.status}${text ? ` — ${text}` : ''}`;
     } else {
       const data = await res.json().catch(() => null);
       if (data?.error) {
@@ -69,7 +70,6 @@ export default async function Page() {
             <div key={it.id} className="rounded-2xl border p-4 flex gap-4">
               <div className="w-40 h-28 shrink-0 overflow-hidden rounded-lg bg-gray-100">
                 {it.cover_url ? (
-                  // обычный <img>, чтобы не трогать next/image конфиг
                   <img
                     src={it.cover_url}
                     alt={it.title ?? 'Фото'}
@@ -96,19 +96,17 @@ export default async function Page() {
                     <span>{new Intl.NumberFormat('ru-RU').format(it.monthly_price)} ₽ / мес</span>
                   ) : null}
                   {typeof it.deposit === 'number' ? (
-                    <span className="text-muted-foreground">Залог: {new Intl.NumberFormat('ru-RU').format(it.deposit)} ₽</span>
+                    <span className="text-muted-foreground">
+                      Залог: {new Intl.NumberFormat('ru-RU').format(it.deposit)} ₽
+                    </span>
                   ) : null}
                   {it.status ? <span className="text-orange-600">{it.status}</span> : null}
                   {it.payment_status ? <span className="text-orange-600">{it.payment_status}</span> : null}
                 </div>
 
                 <div className="mt-3 flex items-center gap-3">
-                  {/* если API уже отдал chat_path — даём прямую ссылку */}
                   {it.chat_path ? (
-                    <Link
-                      href={it.chat_path}
-                      className="px-3 py-1.5 rounded border hover:bg-gray-50"
-                    >
+                    <Link href={it.chat_path} className="px-3 py-1.5 rounded border hover:bg-gray-50">
                       Открыть чат
                     </Link>
                   ) : it.listing_id ? (
