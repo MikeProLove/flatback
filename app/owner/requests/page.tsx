@@ -1,115 +1,107 @@
-'use client';
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
-import { useEffect, useState } from 'react';
-import OpenChatButton from '@/app/(components)/OpenChatButton';
+import { absoluteUrl, authHeaders } from '@/lib/absolute-url';
+import OpenChatButton from '@/components/OpenChatButton';
+import Image from 'next/image';
 
-type Row = {
+type Item = {
   id: string;
-  status: 'pending' | 'approved' | 'declined' | 'cancelled';
-  payment_status: 'pending' | 'paid' | 'refunded';
+  listing_id: string;
+  renter_id_for_chat?: string | null;
+
+  title?: string | null;
+  city?: string | null;
+  cover_url?: string | null;
+
   start_date: string | null;
   end_date: string | null;
   monthly_price: number | null;
   deposit: number | null;
-  created_at: string;
-  listing_id: string;
-  listing_title: string | null;
-  listing_city: string | null;
-  cover_url: string | null;
-  renter_id_for_chat: string | null; // <- заявитель
-  chat_id: string | null;
+  status: string | null;
+  payment_status: string | null;
 };
 
-const money = (n?: number | null) =>
-  new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', maximumFractionDigits: 0 })
-    .format(Number(n ?? 0));
-const safeDate = (s: any) => {
-  const d = new Date(String(s));
-  return Number.isFinite(+d) ? d.toLocaleDateString('ru-RU') : '—';
-};
+async function loadData(): Promise<{ items: Item[]; error?: string }> {
+  const url = absoluteUrl('/api/requests/incoming');
+  const res = await fetch(url, {
+    method: 'GET',
+    headers: authHeaders(),
+    cache: 'no-store',
+  });
 
-export default function OwnerRequestsPage() {
-  const [rows, setRows] = useState<Row[] | null>(null);
-  const [err, setErr] = useState<string | null>(null);
+  let data: any = null;
+  try {
+    data = await res.json();
+  } catch {
+    return { items: [], error: 'bad_json' };
+  }
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const r = await fetch('/api/requests/incoming', { cache: 'no-store' });
-        const j = await r.json();
-        if (!r.ok) throw new Error(j?.error || 'load_failed');
-        setRows(j.rows ?? []);
-      } catch (e: any) {
-        setErr(e?.message || 'Ошибка загрузки');
-        setRows([]);
-      }
-    })();
-  }, []);
+  if (!res.ok) {
+    return { items: [], error: data?.message || data?.error || 'api_error' };
+  }
+
+  const items: Item[] = data?.items ?? data?.rows ?? data ?? [];
+  return { items };
+}
+
+export default async function Page() {
+  const { items, error } = await loadData();
 
   return (
-    <div className="mx-auto max-w-5xl px-4 py-10 space-y-6">
+    <div className="mx-auto max-w-6xl px-4 py-8 space-y-4">
       <h1 className="text-2xl font-semibold">Заявки на мои</h1>
 
-      {err && <div className="rounded-2xl border p-6 text-sm text-red-600">Ошибка: {err}</div>}
+      {error ? (
+        <div className="rounded-xl border p-3 text-sm text-red-600">Ошибка: {error}</div>
+      ) : null}
 
-      {rows === null ? (
-        <div className="rounded-2xl border p-6 text-sm text-muted-foreground">Загружаем…</div>
-      ) : rows.length === 0 ? (
-        <div className="rounded-2xl border p-6 text-sm text-muted-foreground">Заявок пока нет.</div>
+      {items.length === 0 ? (
+        <div className="rounded-xl border p-4 text-sm text-muted-foreground">
+          Заявок пока нет.
+        </div>
       ) : (
         <div className="space-y-4">
-          {rows.map((r) => (
-            <div key={r.id} className="rounded-2xl border overflow-hidden">
-              <div className="grid grid-cols-[160px_1fr]">
-                <div className="bg-muted">
-                  {r.cover_url && <img src={r.cover_url} alt="" className="w-full h-full object-cover" />}
-                </div>
-                <div className="p-4 space-y-2">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="space-y-1">
-                      <a href={`/listings/${r.listing_id}`} className="font-medium hover:underline">
-                        {r.listing_title ?? 'Объявление'}
-                      </a>
-                      <div className="text-sm text-muted-foreground">{r.listing_city ?? '—'}</div>
-                      <div className="text-xs">
-                        {safeDate(r.start_date)} — {safeDate(r.end_date)}
-                      </div>
-                    </div>
-                    <div className="text-right text-sm">
-                      <div className="font-semibold">{money(r.monthly_price)} / мес</div>
-                      {r.deposit ? <div className="text-muted-foreground">Залог: {money(r.deposit)}</div> : null}
-                      <div className="text-xs">
-                        <span className={
-                          r.status === 'approved' ? 'text-green-600'
-                          : r.status === 'declined' ? 'text-red-600'
-                          : r.status === 'cancelled' ? 'text-gray-500'
-                          : 'text-yellow-600'
-                        }>{r.status}</span>
-                        {' · '}
-                        <span className={
-                          r.payment_status === 'paid' ? 'text-green-600'
-                          : r.payment_status === 'refunded' ? 'text-gray-600'
-                          : 'text-yellow-600'
-                        }>{r.payment_status}</span>
-                      </div>
-                    </div>
-                  </div>
+          {items.map((r) => (
+            <div key={r.id} className="flex gap-4 rounded-2xl border p-4">
+              <div className="w-44 h-28 shrink-0 overflow-hidden rounded-lg bg-muted">
+                {r.cover_url ? (
+                  <Image
+                    src={r.cover_url}
+                    alt=""
+                    width={352}
+                    height={224}
+                    className="h-full w-full object-cover"
+                  />
+                ) : null}
+              </div>
 
-                  <div className="pt-2">
-                    {r.chat_id ? (
-                      <a href={`/chat/${r.chat_id}`} className="px-3 py-1 border rounded-md text-sm">Открыть чат</a>
-                    ) : r.listing_id && r.renter_id_for_chat ? (
-                      <OpenChatButton
-                        listingId={r.listing_id}
-                        otherId={r.renter_id_for_chat}
-                        label="Открыть чат"
-                      />
-                    ) : (
-                      <div className="text-sm text-muted-foreground">
-                        Чат появится, когда у заявки будет известен заявитель.
-                      </div>
-                    )}
-                  </div>
+              <div className="flex-1">
+                <div className="font-semibold">{r.title ?? 'Объявление'}</div>
+                <div className="text-sm text-muted-foreground">{r.city ?? '—'}</div>
+                <div className="text-sm mt-1">
+                  {r.start_date && r.end_date ? (
+                    <>
+                      {new Date(r.start_date).toLocaleDateString('ru-RU')} —{' '}
+                      {new Date(r.end_date).toLocaleDateString('ru-RU')}
+                    </>
+                  ) : (
+                    'Дата не указана'
+                  )}
+                </div>
+
+                <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
+                  <span className="text-muted-foreground">
+                    {r.status ?? 'pending'} · {r.payment_status ?? 'pending'}
+                  </span>
+
+                  {r.listing_id && r.renter_id_for_chat ? (
+                    <OpenChatButton
+                      listingId={r.listing_id}
+                      otherId={r.renter_id_for_chat}
+                      label="Открыть чат"
+                    />
+                  ) : null}
                 </div>
               </div>
             </div>
