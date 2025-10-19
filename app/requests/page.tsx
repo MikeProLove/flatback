@@ -17,16 +17,16 @@ type Row = {
   listing_city: string | null;
   cover_url: string | null;
   chat_id: string | null;
-  owner_id_for_chat: string | null;
 };
 
-function money(n?: number | null) {
+const money = (n?: number | null) => {
   const v = Number(n ?? 0);
-  try { return new Intl.NumberFormat('ru-RU',{style:'currency',currency:'RUB',maximumFractionDigits:0}).format(v); }
+  try { return new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', maximumFractionDigits: 0 }).format(v); }
   catch { return `${Math.round(v)} ₽`; }
-}
-const safeDate = (d:any) => {
-  const dt = new Date(String(d)); return Number.isFinite(+dt) ? dt.toLocaleDateString('ru-RU') : '—';
+};
+const safeDate = (d: any) => {
+  const dt = new Date(String(d));
+  return Number.isFinite(+dt) ? dt.toLocaleDateString('ru-RU') : '—';
 };
 
 export default function MyRequestsPage() {
@@ -36,12 +36,14 @@ export default function MyRequestsPage() {
   useEffect(() => {
     (async () => {
       try {
+        setErr(null);
         const r = await fetch('/api/requests/mine', { cache: 'no-store' });
         const j = await r.json();
         if (!r.ok) throw new Error(j?.message || j?.error || 'load_failed');
         setRows(j.rows ?? []);
-      } catch (e:any) {
-        setErr(e?.message || 'Ошибка загрузки'); setRows([]);
+      } catch (e: any) {
+        setErr(e?.message || 'Ошибка загрузки');
+        setRows([]);
       }
     })();
   }, []);
@@ -50,17 +52,17 @@ export default function MyRequestsPage() {
     <div className="mx-auto max-w-5xl px-4 py-10 space-y-6">
       <h1 className="text-2xl font-semibold">Мои заявки</h1>
 
-      {err && <div className="rounded-2xl border p-6 text-sm text-red-600">Ошибка: {String(err)}</div>}
-
-      {rows === null ? (
+      {err ? (
+        <div className="rounded-2xl border p-6 text-sm text-red-600">Ошибка: {err}</div>
+      ) : rows === null ? (
         <div className="rounded-2xl border p-6 text-sm text-muted-foreground">Загружаем…</div>
       ) : rows.length === 0 ? (
         <div className="rounded-2xl border p-6 text-sm text-muted-foreground">Заявок пока нет.</div>
       ) : (
         <div className="space-y-4">
-          {rows.map((r) => (
+          {rows.map(r => (
             <div key={r.id} className="rounded-2xl border overflow-hidden">
-              <div className="grid grid-cols-[160px_1fr]">
+              <div className="grid grid-cols-[160px_1fr] gap-0">
                 <div className="bg-muted">
                   {r.cover_url ? <img src={r.cover_url} alt="" className="w-full h-full object-cover" /> : null}
                 </div>
@@ -91,11 +93,11 @@ export default function MyRequestsPage() {
                     </div>
                   </div>
 
-                  <div className="pt-2 flex flex-wrap gap-8 items-center">
+                  <div className="pt-2">
                     {r.chat_id ? (
                       <a href={`/chat/${r.chat_id}`} className="px-3 py-1 border rounded-md text-sm">Открыть чат</a>
                     ) : r.listing_id ? (
-                      <OpenChatButton listingId={r.listing_id} otherId={r.owner_id_for_chat || undefined} label="Открыть чат" />
+                      <OpenChatButton listingId={r.listing_id} label="Открыть чат" />
                     ) : null}
                   </div>
                 </div>
