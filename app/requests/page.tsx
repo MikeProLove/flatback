@@ -98,14 +98,14 @@ export default function MyRequestsPage() {
 
                   <div className="pt-2">
                     {r.chat_id ? (
-                      <a href={`/chat/${r.chat_id}`} className="px-3 py-1 border rounded-md text-sm">Открыть чат</a>
-                    ) : r.listing_id && r.owner_id_for_chat ? (
-                      <OpenChatButton
-                        listingId={r.listing_id}
-                        otherId={r.owner_id_for_chat}
-                        label="Открыть чат"
-                      />
-                    ) : (
+                        <a href={`/chat/${r.chat_id}`} className="px-3 py-1 border rounded-md text-sm">Открыть чат</a>
+                      ) : r.listing_id && r.owner_id_for_chat ? (
+                        <OpenChatButton
+                          listingId={r.listing_id}
+                          otherId={r.owner_id_for_chat}
+                          label="Открыть чат"
+                        />
+                      ) : null}
                       <div className="text-sm text-muted-foreground">
                         Чат появится, когда у заявки будет известен владелец.
                       </div>
