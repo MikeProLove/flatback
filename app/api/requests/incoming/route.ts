@@ -7,18 +7,23 @@ import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { getSupabaseAdmin } from '@/lib/supabase-admin';
 
-type Booking = {
+type RowOut = {
   id: string;
-  listing_id: string | null;
-  status: string | null;
-  payment_status: string | null;
-  start_date: string | null;
-  end_date: string | null;
-  monthly_price: number | null;
-  deposit: number | null;
+  status: 'pending'|'approved'|'declined'|'cancelled';
+  payment_status: 'pending'|'paid'|'refunded';
+  start_date: string|null;
+  end_date: string|null;
+  monthly_price: number|null;
+  deposit: number|null;
   created_at: string;
-  renter_id?: string | null;
-  user_id?: string | null;
+  listing_id: string;
+
+  listing_title: string|null;
+  listing_city: string|null;
+  cover_url: string|null;
+
+  renter_id_for_chat: string|null; // собеседник = заявитель
+  chat_id: string|null;
 };
 
 export async function GET() {
@@ -28,114 +33,78 @@ export async function GET() {
 
     const sb = getSupabaseAdmin();
 
-    // 1) мои объявления
-    const { data: myListings, error: lerr } = await sb
-      .from('listings')
-      .select('id')
-      .or(`owner_id.eq.${userId},user_id.eq.${userId}`)
-      .limit(1000);
-
-    if (lerr) {
-      return NextResponse.json(
-        { error: 'db_error', message: lerr.message },
-        { status: 500 }
-      );
-    }
-
-    const listingIds = (myListings ?? []).map((x) => x.id);
-    if (!listingIds.length) {
-      return NextResponse.json({ rows: [] });
-    }
-
-    // 2) заявки по этим объявлениям — сначала пробуем с renter_id
-    const qRenter = await sb
-      .from('bookings')
-      .select(
-        'id, listing_id, status, payment_status, start_date, end_date, monthly_price, deposit, created_at, renter_id, user_id'
-      )
-      .in('listing_id', listingIds)
+    // 1) заявки на мои (я = владелец)
+    const q = await sb
+      .from('bookings_unified')
+      .select('id, listing_id, status, payment_status, start_date, end_date, monthly_price, deposit, created_at, renter_id')
+      .eq('owner_id', userId)
       .order('created_at', { ascending: false });
 
-    let bookings: Booking[] = [];
-
-    if (qRenter.error && /column .*renter_id.* does not exist/i.test(qRenter.error.message)) {
-      const qUser = await sb
-        .from('bookings')
-        .select(
-          'id, listing_id, status, payment_status, start_date, end_date, monthly_price, deposit, created_at, user_id'
-        )
-        .in('listing_id', listingIds)
-        .order('created_at', { ascending: false });
-
-      if (qUser.error) {
-        return NextResponse.json(
-          { error: 'db_error', message: qUser.error.message },
-          { status: 500 }
-        );
-      }
-      bookings = (qUser.data ?? []) as unknown as Booking[];
-    } else if (qRenter.error) {
-      return NextResponse.json(
-        { error: 'db_error', message: qRenter.error.message },
-        { status: 500 }
-      );
-    } else {
-      bookings = (qRenter.data ?? []) as unknown as Booking[];
+    if (q.error) {
+      return NextResponse.json({ error: 'db_error', message: q.error.message }, { status: 500 });
     }
 
-    if (!bookings.length) {
-      return NextResponse.json({ rows: [] });
-    }
+    const rows = q.data ?? [];
+    const listingIds = Array.from(new Set(rows.map(r => r.listing_id).filter(Boolean)));
 
-    // 3) краткая инфо по объявлениям
+    // 2) инфо по объявлениям
     const { data: listings } = await sb
       .from('listings')
       .select('id, title, city')
-      .in('id', listingIds);
+      .in('id', listingIds.length ? listingIds : ['-']);
 
-    const listingMap = new Map((listings ?? []).map((l) => [l.id, l] as const));
+    const listingMap = new Map((listings ?? []).map(l => [l.id, { title: l.title as string|null, city: l.city as string|null }]));
 
-    // 4) обложки
+    // 3) обложки
     const { data: photos } = await sb
       .from('listing_photos')
       .select('listing_id, url, sort_order')
-      .in('listing_id', listingIds)
+      .in('listing_id', listingIds.length ? listingIds : ['-'])
       .order('sort_order', { ascending: true });
 
     const coverMap = new Map<string, string>();
-    (photos ?? []).forEach((p: any) => {
-      if (p.url && !coverMap.has(p.listing_id)) coverMap.set(p.listing_id, p.url);
-    });
+    for (const p of photos ?? []) {
+      if (!coverMap.has(p.listing_id) && p.url) coverMap.set(p.listing_id, p.url);
+    }
 
-    // 5) владелец смотрит на заявителя → other = renter_id | user_id
-    const rows = bookings.map((b) => {
-      const L = b.listing_id ? listingMap.get(b.listing_id) : null;
-      const renter = (b as any).renter_id ?? (b as any).user_id ?? null;
+    // 4) существующие чаты (owner = userId, participant = renter_id)
+    let existingChats = new Map<string, string>();
+    if (rows.length) {
+      const { data: chats } = await sb
+        .from('chats')
+        .select('id, listing_id, owner_id, participant_id')
+        .eq('owner_id', userId)
+        .in('listing_id', listingIds.length ? listingIds : ['-']);
+      for (const c of chats ?? []) {
+        const key = `${c.listing_id}:${c.owner_id}:${c.participant_id}`;
+        existingChats.set(key, c.id);
+      }
+    }
+
+    const out: RowOut[] = rows.map(r => {
+      const lm = listingMap.get(r.listing_id);
+      const renterId = (r as any).renter_id as string | null;
+      const chatKey = renterId ? `${r.listing_id}:${userId}:${renterId}` : '';
       return {
-        id: b.id,
-        status: b.status ?? 'pending',
-        payment_status: b.payment_status ?? 'pending',
-        start_date: b.start_date,
-        end_date: b.end_date,
-        monthly_price: b.monthly_price ?? 0,
-        deposit: b.deposit,
-        created_at: b.created_at,
-
-        listing_id: b.listing_id,
-        listing_title: L?.title ?? null,
-        listing_city: L?.city ?? null,
-        cover_url: b.listing_id ? coverMap.get(b.listing_id) ?? null : null,
-
-        renter_id_for_chat: renter,
-        chat_id: null,
+        id: r.id,
+        status: r.status as any,
+        payment_status: r.payment_status as any,
+        start_date: r.start_date,
+        end_date: r.end_date,
+        monthly_price: r.monthly_price,
+        deposit: r.deposit,
+        created_at: r.created_at,
+        listing_id: r.listing_id,
+        listing_title: lm?.title ?? null,
+        listing_city: lm?.city ?? null,
+        cover_url: coverMap.get(r.listing_id) ?? null,
+        renter_id_for_chat: renterId,
+        chat_id: chatKey ? (existingChats.get(chatKey) ?? null) : null,
       };
     });
 
-    return NextResponse.json({ rows });
+    return NextResponse.json({ rows: out });
   } catch (e: any) {
-    return NextResponse.json(
-      { error: 'server_error', message: e?.message ?? 'internal' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'server_error', message: e?.message || 'internal' }, { status: 500 });
   }
 }
