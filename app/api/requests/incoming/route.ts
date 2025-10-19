@@ -28,7 +28,7 @@ export async function GET() {
 
     const sb = getSupabaseAdmin();
 
-    // 1) Находим все мои объявления (я — владелец)
+    // 1) мои объявления
     const { data: myListings, error: lerr } = await sb
       .from('listings')
       .select('id')
@@ -47,8 +47,8 @@ export async function GET() {
       return NextResponse.json({ rows: [] });
     }
 
-    // 2) Берём заявки по этим объявлениям
-    let q = await sb
+    // 2) заявки по этим объявлениям — сначала пробуем с renter_id
+    const qRenter = await sb
       .from('bookings')
       .select(
         'id, listing_id, status, payment_status, start_date, end_date, monthly_price, deposit, created_at, renter_id, user_id'
@@ -56,29 +56,46 @@ export async function GET() {
       .in('listing_id', listingIds)
       .order('created_at', { ascending: false });
 
-    if (q.error) {
+    let bookings: Booking[] = [];
+
+    if (qRenter.error && /column .*renter_id.* does not exist/i.test(qRenter.error.message)) {
+      const qUser = await sb
+        .from('bookings')
+        .select(
+          'id, listing_id, status, payment_status, start_date, end_date, monthly_price, deposit, created_at, user_id'
+        )
+        .in('listing_id', listingIds)
+        .order('created_at', { ascending: false });
+
+      if (qUser.error) {
+        return NextResponse.json(
+          { error: 'db_error', message: qUser.error.message },
+          { status: 500 }
+        );
+      }
+      bookings = (qUser.data ?? []) as unknown as Booking[];
+    } else if (qRenter.error) {
       return NextResponse.json(
-        { error: 'db_error', message: q.error.message },
+        { error: 'db_error', message: qRenter.error.message },
         { status: 500 }
       );
+    } else {
+      bookings = (qRenter.data ?? []) as unknown as Booking[];
     }
 
-    const bookings = (q.data ?? []) as Booking[];
     if (!bookings.length) {
       return NextResponse.json({ rows: [] });
     }
 
-    // 3) Подтягиваем краткую инфо объявления
+    // 3) краткая инфо по объявлениям
     const { data: listings } = await sb
       .from('listings')
       .select('id, title, city')
       .in('id', listingIds);
 
-    const listingMap = new Map(
-      (listings ?? []).map((l) => [l.id, l] as const)
-    );
+    const listingMap = new Map((listings ?? []).map((l) => [l.id, l] as const));
 
-    // 4) Обложки
+    // 4) обложки
     const { data: photos } = await sb
       .from('listing_photos')
       .select('listing_id, url, sort_order')
@@ -86,16 +103,14 @@ export async function GET() {
       .order('sort_order', { ascending: true });
 
     const coverMap = new Map<string, string>();
-    (photos ?? []).forEach((p) => {
+    (photos ?? []).forEach((p: any) => {
       if (p.url && !coverMap.has(p.listing_id)) coverMap.set(p.listing_id, p.url);
     });
 
-    // 5) Ответ для владельца: собеседник — заявитель (renter_id | user_id)
+    // 5) владелец смотрит на заявителя → other = renter_id | user_id
     const rows = bookings.map((b) => {
       const L = b.listing_id ? listingMap.get(b.listing_id) : null;
-      const renter =
-        (b as any).renter_id ?? (b as any).user_id ?? null;
-
+      const renter = (b as any).renter_id ?? (b as any).user_id ?? null;
       return {
         id: b.id,
         status: b.status ?? 'pending',
@@ -105,11 +120,13 @@ export async function GET() {
         monthly_price: b.monthly_price ?? 0,
         deposit: b.deposit,
         created_at: b.created_at,
+
         listing_id: b.listing_id,
         listing_title: L?.title ?? null,
         listing_city: L?.city ?? null,
         cover_url: b.listing_id ? coverMap.get(b.listing_id) ?? null : null,
-        renter_id_for_chat: renter, // ← нужен для кнопки чата
+
+        renter_id_for_chat: renter,
         chat_id: null,
       };
     });
