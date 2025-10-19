@@ -4,7 +4,7 @@ export const revalidate = 0;
 
 import Link from 'next/link';
 import OpenChatButton from '@/components/OpenChatButton';
-import { absoluteUrl } from '@/lib/absolute-url';
+import { apiFetch } from '@/lib/absolute-url';
 
 type Item = {
   id: string;
@@ -34,9 +34,10 @@ export default async function Page() {
   let errorMsg: string | null = null;
 
   try {
-    const res = await fetch(absoluteUrl('/api/requests/incoming'), { cache: 'no-store' });
+    const res = await apiFetch('/api/requests/incoming');
     if (!res.ok) {
-      errorMsg = `HTTP ${res.status}`;
+      const text = await res.text().catch(() => '');
+      errorMsg = `HTTP ${res.status}${text ? ` — ${text}` : ''}`;
     } else {
       const data = await res.json().catch(() => null);
       if (data?.error) {
@@ -95,7 +96,9 @@ export default async function Page() {
                     <span>{new Intl.NumberFormat('ru-RU').format(it.monthly_price)} ₽ / мес</span>
                   ) : null}
                   {typeof it.deposit === 'number' ? (
-                    <span className="text-muted-foreground">Залог: {new Intl.NumberFormat('ru-RU').format(it.deposit)} ₽</span>
+                    <span className="text-muted-foreground">
+                      Залог: {new Intl.NumberFormat('ru-RU').format(it.deposit)} ₽
+                    </span>
                   ) : null}
                   {it.status ? <span className="text-orange-600">{it.status}</span> : null}
                   {it.payment_status ? <span className="text-orange-600">{it.payment_status}</span> : null}
