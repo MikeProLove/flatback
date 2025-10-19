@@ -14,8 +14,7 @@ export async function POST(req: Request) {
 
     const body = await req.json().catch(() => ({}));
     const listingId: string | undefined = body?.listingId;
-    // second party is optional — we'll resolve to listing owner if missing
-    let otherId: string | undefined = body?.otherId;
+    let otherId: string | undefined = body?.otherId || body?.otherUserId || body?.participantId;
 
     if (!listingId) {
       return NextResponse.json({ error: 'bad_request', message: 'listingId обязателен' }, { status: 400 });
@@ -23,69 +22,64 @@ export async function POST(req: Request) {
 
     const sb = getSupabaseAdmin();
 
-    // 1) узнаём владельца объявления (owner чата)
+    // Узнаём владельца объявления (в БД owner_id TEXT, user_id TEXT – берём любой из них)
     const { data: L, error: le } = await sb
       .from('listings')
       .select('id, owner_id, user_id')
       .eq('id', listingId)
       .maybeSingle();
 
-    if (le || !L) {
-      return NextResponse.json({ error: 'not_found', message: 'Объявление не найдено' }, { status: 404 });
-    }
+    if (le || !L) return NextResponse.json({ error: 'not_found' }, { status: 404 });
 
-    const listingOwner: string | null = L.owner_id || L.user_id || null;
+    const listingOwner = (L.owner_id || L.user_id) as string | null;
 
-    // если otherId не передали — чатом становитесь вы (покупатель) и владелец объявления
+    // Если otherId не передали (например, из "Мои заявки"), определяем автоматически
     if (!otherId) {
-      if (!listingOwner) {
-        return NextResponse.json({ error: 'db_error', message: 'У объявления нет владельца' }, { status: 500 });
-      }
-      // если текущий пользователь и есть владелец — открывать чат нельзя
-      otherId = listingOwner;
+      // если я владелец объявления, мой собеседник — заявитель (рента)
+      // этот кейс отработает в "Заявки на мои" (ниже мы передаём renterId прямо из API),
+      // а здесь fallback — запретить чат с самим собой
+      otherId = listingOwner === userId ? undefined : listingOwner || undefined;
     }
 
-    // 2) запрет "сам с собой"
+    if (!otherId) {
+      return NextResponse.json({ error: 'bad_request', message: 'Не удалось определить собеседника (otherId)' }, { status: 400 });
+    }
+
+    // Нельзя открывать чат с самим собой
     if (otherId === userId) {
-      return NextResponse.json(
-        { error: 'chats_no_self', message: 'Нельзя открыть чат с самим собой' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'self_forbidden', message: 'Нельзя открыть чат с самим собой' }, { status: 400 });
     }
 
-    // 3) владелец чата — именно владелец объявления; второй участник — текущий пользователь, если он не владелец
-    const ownerId = listingOwner === userId ? userId : listingOwner;
-    const participantId = listingOwner === userId ? otherId : userId;
+    // Владелец чата — именно владелец объявления
+    const chatOwner = listingOwner || otherId;
 
-    if (!ownerId || !participantId) {
-      return NextResponse.json({ error: 'bad_request', message: 'Не определены участники' }, { status: 400 });
-    }
-
-    // 4) ищем уже существующий чат
-    const existing = await sb
+    // Ищем уже существующий чат
+    const ex = await sb
       .from('chats')
       .select('id')
       .eq('listing_id', listingId)
-      .eq('owner_id', ownerId)
-      .eq('participant_id', participantId)
+      .eq('owner_id', chatOwner)
+      .eq('participant_id', chatOwner === userId ? otherId : userId) // на случай если earlier data были кривыми
       .maybeSingle();
 
-    if (existing.data?.id) {
-      return NextResponse.json({ id: existing.data.id });
-    }
+    if (ex.data) return NextResponse.json({ id: ex.data.id });
 
-    // 5) создаём
+    // Если не нашли — создаём
     const ins = await sb
       .from('chats')
       .insert({
         listing_id: listingId,
-        owner_id: ownerId,
-        participant_id: participantId,
+        owner_id: chatOwner,
+        participant_id: userId === chatOwner ? otherId : userId, // участник — не владелец
       })
       .select('id')
       .single();
 
     if (ins.error) {
+      // отлавливаем check constraint chats_no_self
+      if (ins.error.message?.includes('chats_no_self')) {
+        return NextResponse.json({ error: 'self_forbidden', message: 'Нельзя открыть чат с самим собой' }, { status: 400 });
+      }
       return NextResponse.json({ error: 'db_error', message: ins.error.message }, { status: 500 });
     }
 
