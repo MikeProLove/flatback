@@ -3,43 +3,43 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 
-export default function OpenChatButton({
-  listingId,
-  otherUserId,           // можно не передавать на странице объявления
-  label = 'Открыть чат',
-  className = 'px-3 py-1 border rounded-md text-sm'
-}: {
+export default function OpenChatButton(props: {
   listingId: string;
-  otherUserId?: string;
+  otherId: string;          // с кем общаемся (второй пользователь)
   label?: string;
-  className?: string;
+  disabled?: boolean;
 }) {
-  const [busy, setBusy] = useState(false);
+  const { listingId, otherId, label = 'Открыть чат', disabled } = props;
+  const [loading, setLoading] = useState(false);
   const router = useRouter();
 
   async function open() {
-    if (busy) return;
-    setBusy(true);
+    if (disabled || loading) return;
+    setLoading(true);
     try {
-      const res = await fetch('/api/chats/open', {
+      const r = await fetch('/api/chats/open', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ listingId, otherId: otherUserId ?? null }),
+        body: JSON.stringify({ listingId, otherId }),
       });
-      const j = await res.json().catch(() => ({}));
-      if (!res.ok || !j?.id) {
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) {
         alert(j?.message || j?.error || 'Не удалось открыть чат');
-        return;
+      } else {
+        router.push(`/chat/${j.id}`);
       }
-      router.push(`/chat/${j.id}`);          // ← всегда в единственное число
     } finally {
-      setBusy(false);
+      setLoading(false);
     }
   }
 
   return (
-    <button onClick={open} disabled={busy} className={className}>
-      {busy ? 'Открываем…' : label}
+    <button
+      onClick={open}
+      disabled={disabled || loading}
+      className="px-3 py-1 border rounded-md text-sm disabled:opacity-50"
+    >
+      {loading ? 'Открываем…' : label}
     </button>
   );
 }
