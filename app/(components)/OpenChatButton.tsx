@@ -1,33 +1,41 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
 
-export default function OpenChatButton(props: {
+type Props = {
   listingId: string;
-  otherId: string;          // с кем общаемся (второй пользователь)
+  /** можно не передавать — сервер возьмёт владельца объявления */
+  otherId?: string;
   label?: string;
   disabled?: boolean;
-}) {
-  const { listingId, otherId, label = 'Открыть чат', disabled } = props;
+};
+
+export default function OpenChatButton({
+  listingId,
+  otherId,
+  label = 'Открыть чат',
+  disabled,
+}: Props) {
   const [loading, setLoading] = useState(false);
-  const router = useRouter();
 
   async function open() {
-    if (disabled || loading) return;
+    if (loading) return;
     setLoading(true);
     try {
-      const r = await fetch('/api/chats/open', {
+      const payload = otherId ? { listingId, otherId } : { listingId };
+
+      const res = await fetch('/api/chats/open', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ listingId, otherId }),
+        body: JSON.stringify(payload),
       });
-      const j = await r.json().catch(() => ({}));
-      if (!r.ok) {
-        alert(j?.message || j?.error || 'Не удалось открыть чат');
-      } else {
-        router.push(`/chat/${j.id}`);
+
+      const j = await res.json().catch(() => ({} as any));
+      if (!res.ok) {
+        alert(j?.message || j?.error || 'db_error');
+        return;
       }
+      window.location.href = `/chat/${j.id}`;
     } finally {
       setLoading(false);
     }
@@ -37,7 +45,7 @@ export default function OpenChatButton(props: {
     <button
       onClick={open}
       disabled={disabled || loading}
-      className="px-3 py-1 border rounded-md text-sm disabled:opacity-50"
+      className="px-3 py-1 border rounded-md text-sm"
     >
       {loading ? 'Открываем…' : label}
     </button>
