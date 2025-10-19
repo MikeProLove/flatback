@@ -1,16 +1,6 @@
 'use client';
 
-import { useState, useTransition } from 'react';
-
-function money(n: number) {
-  try {
-    return new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', maximumFractionDigits: 0 }).format(
-      n || 0
-    );
-  } catch {
-    return `${Math.round(n || 0)} ₽`;
-  }
-}
+import { useState } from 'react';
 
 export default function BookWidget({
   listingId,
@@ -23,65 +13,86 @@ export default function BookWidget({
 }) {
   const [start, setStart] = useState<string>('');
   const [end, setEnd] = useState<string>('');
-  const [pending, startTr] = useTransition();
-  const total = price + (deposit ?? 0);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [ok, setOk] = useState<string | null>(null);
+
+  async function submit() {
+    try {
+      setBusy(true);
+      setErr(null);
+      setOk(null);
+
+      const res = await fetch('/api/bookings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          listingId,
+          start_date: start || null,
+          end_date: end || null,
+        }),
+      });
+
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(j?.message || j?.error || 'Не удалось отправить заявку');
+
+      setOk('Заявка отправлена!');
+      // мягкий редирект в "Мои заявки", чтобы пользователь сразу видел результат
+      setTimeout(() => {
+        window.location.href = '/requests';
+      }, 400);
+    } catch (e: any) {
+      setErr(e?.message || 'Ошибка отправки');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const money = (n?: number | null) =>
+    new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', maximumFractionDigits: 0 }).format(
+      Number(n ?? 0)
+    );
 
   return (
     <div className="space-y-3">
-      <div className="font-medium">Забронировать</div>
-      <div className="grid grid-cols-2 gap-2">
-        <input
-          type="date"
-          value={start}
-          onChange={(e) => setStart(e.target.value)}
-          className="w-full rounded-md border px-3 py-2 text-sm"
-          placeholder="c"
-        />
-        <input
-          type="date"
-          value={end}
-          onChange={(e) => setEnd(e.target.value)}
-          className="w-full rounded-md border px-3 py-2 text-sm"
-          placeholder="по"
-        />
-      </div>
-
       <div className="text-sm text-muted-foreground">
-        Аренда: <b>{money(price)}</b>
-        {deposit ? (
-          <>
-            {' '}
-            · Залог: <b>{money(deposit)}</b>
-          </>
+        Стоимость: <b>{money(price)}</b>
+        {typeof deposit === 'number' ? (
+          <span> · Залог: <b>{money(deposit)}</b></span>
         ) : null}
       </div>
 
+      <div className="flex flex-col gap-2">
+        <label className="text-sm">
+          Дата заезда
+          <input
+            type="date"
+            value={start}
+            onChange={(e) => setStart(e.target.value)}
+            className="block mt-1 w-full border rounded-md px-3 py-2"
+          />
+        </label>
+
+        <label className="text-sm">
+          Дата выезда
+          <input
+            type="date"
+            value={end}
+            onChange={(e) => setEnd(e.target.value)}
+            className="block mt-1 w-full border rounded-md px-3 py-2"
+          />
+        </label>
+      </div>
+
+      {err ? <div className="text-sm text-red-600">{err}</div> : null}
+      {ok ? <div className="text-sm text-green-700">{ok}</div> : null}
+
       <button
-        disabled={pending || !start || !end}
-        onClick={() =>
-          startTr(async () => {
-            try {
-              const res = await fetch('/api/bookings', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  listing_id: listingId,
-                  start_date: start,
-                  end_date: end,
-                  monthly_price: price,
-                  deposit: deposit ?? 0,
-                }),
-              });
-              if (!res.ok) throw new Error(await res.text());
-              alert(`Заявка отправлена. Сумма к оплате после подтверждения: ${money(total)}`);
-            } catch (e: any) {
-              alert(e?.message || 'Не удалось отправить заявку');
-            }
-          })
-        }
-        className="w-full rounded-md border px-4 py-2 text-sm hover:bg-muted disabled:opacity-60"
+        onClick={submit}
+        disabled={busy}
+        className="w-full px-4 py-2 border rounded-md hover:bg-muted disabled:opacity-60"
       >
-        Отправить заявку
+        {busy ? 'Отправляем…' : 'Отправить заявку'}
       </button>
     </div>
   );
