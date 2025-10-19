@@ -1,4 +1,3 @@
-// app/api/requests/incoming/route.ts
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -7,13 +6,32 @@ import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { getSupabaseAdmin } from '@/lib/supabase-admin';
 
-type Booking = Record<string, any>;
-const getRenterId = (b: Booking) => {
-  for (const k of ['renter_id', 'user_id', 'created_by', 'author_id', 'customer_id']) {
-    if (k in b && typeof b[k] === 'string' && b[k]) return b[k] as string;
+async function tryFetchIncoming(sb: any, userId: string) {
+  // пробуем найти заявки по owner_id в таблице bookings
+  const candidates = ['owner_id', 'landlord_id'];
+  for (const col of candidates) {
+    const r = await sb
+      .from('bookings')
+      .select('id,status,payment_status,start_date,end_date,monthly_price,deposit,created_at,listing_id')
+      .eq(col, userId)
+      .order('created_at', { ascending: false });
+    if (!r.error) return r.data ?? [];
   }
-  return null;
-};
+  // если колонок нет — берём все букинги по объявлениям, где пользователь владелец
+  const { data: listings } = await sb
+    .from('listings')
+    .select('id')
+    .or(`owner_id.eq.${userId},user_id.eq.${userId}`);
+  const ids = (listings ?? []).map((x: any) => x.id);
+  if (!ids.length) return [];
+  const all = await sb
+    .from('bookings')
+    .select('id,status,payment_status,start_date,end_date,monthly_price,deposit,created_at,listing_id')
+    .in('listing_id', ids)
+    .order('created_at', { ascending: false });
+  if (all.error) throw all.error;
+  return all.data ?? [];
+}
 
 export async function GET() {
   const { userId } = auth();
@@ -21,63 +39,69 @@ export async function GET() {
 
   const sb = getSupabaseAdmin();
 
-  const { data: bookingsRaw, error: eB } = await sb
-    .from('bookings')
-    .select('*')
-    .order('created_at', { ascending: false });
+  try {
+    const bookings = await tryFetchIncoming(sb, userId);
 
-  if (eB) return NextResponse.json({ error: eB.message }, { status: 500 });
+    const listingIds = Array.from(new Set((bookings ?? []).map((b: any) => b.listing_id).filter(Boolean)));
 
-  const listingIds = Array.from(new Set((bookingsRaw ?? []).map(b => b.listing_id).filter(Boolean))) as string[];
+    // мета + кто подал заявку (renter)
+    let renterByBooking = new Map<string, string | null>();
+    // пробуем разные варианты названия колонки арендатора
+    const renterCols = ['renter_id', 'user_id', 'created_by', 'applicant_id'];
+    for (const col of renterCols) {
+      const r = await sb
+        .from('bookings')
+        .select(`id, ${col}`)
+        .in('id', (bookings ?? []).map((x: any) => x.id));
+      if (!r.error) {
+        (r.data ?? []).forEach((x: any) => renterByBooking.set(x.id, x[col] ?? null));
+        break;
+      }
+    }
 
-  const { data: listings } = await sb
-    .from('listings')
-    .select('id,title,city,owner_id,user_id')
-    .in('id', listingIds.length ? listingIds : ['00000000-0000-0000-0000-000000000000']);
+    const { data: L } = listingIds.length
+      ? await sb.from('listings').select('id,title,city').in('id', listingIds)
+      : { data: [] as any[] };
 
-  const byId = new Map<string, any>((listings ?? []).map(l => [l.id, l]));
+    const meta = new Map<string, { title: string | null; city: string | null }>();
+    (L ?? []).forEach((x: any) => meta.set(x.id, { title: x.title, city: x.city }));
 
-  // Оставляем только брони по моим объявлениям
-  const mine = (bookingsRaw ?? []).filter(b => {
-    const l = byId.get(b.listing_id);
-    const owner = l?.owner_id || l?.user_id || null;
-    return owner === userId;
-  });
+    // обложки
+    let covers = new Map<string, string>();
+    if (listingIds.length) {
+      const { data: ph } = await sb
+        .from('listing_photos')
+        .select('listing_id,url,sort_order')
+        .in('listing_id', listingIds)
+        .order('sort_order', { ascending: true });
+      (ph ?? []).forEach((p: any) => { if (!covers.has(p.listing_id) && p.url) covers.set(p.listing_id, p.url); });
+    }
 
-  const { data: photos } = await sb
-    .from('listing_photos')
-    .select('listing_id,url,sort_order')
-    .in('listing_id', Array.from(new Set(mine.map(b => b.listing_id))) as string[])
-    .order('sort_order', { ascending: true });
+    // существующие чаты (где owner — текущий пользователь)
+    let byListingChat = new Map<string, string>();
+    if (listingIds.length) {
+      const { data: ch } = await sb
+        .from('chats')
+        .select('id,listing_id,owner_id,participant_id')
+        .in('listing_id', listingIds)
+        .eq('owner_id', userId);
+      (ch ?? []).forEach((c: any) => byListingChat.set(c.listing_id, c.id));
+    }
 
-  const firstPhoto = new Map<string, string>();
-  (photos ?? []).forEach(p => {
-    if (!firstPhoto.has(p.listing_id) && p.url) firstPhoto.set(p.listing_id, p.url);
-  });
+    const rows = (bookings ?? []).map((b: any) => {
+      const m = meta.get(b.listing_id) || { title: null, city: null };
+      return {
+        ...b,
+        listing_title: m.title,
+        listing_city: m.city,
+        cover_url: covers.get(b.listing_id) || null,
+        chat_id: byListingChat.get(b.listing_id) || null,
+        renter_id_for_chat: renterByBooking.get(b.id) || null,
+      };
+    });
 
-  const rows = mine.map(b => {
-    const l = byId.get(b.listing_id) || {};
-    const renter = getRenterId(b);
-
-    return {
-      id: b.id,
-      status: b.status ?? 'pending',
-      payment_status: b.payment_status ?? 'pending',
-      start_date: b.start_date ?? null,
-      end_date: b.end_date ?? null,
-      monthly_price: Number(b.monthly_price ?? 0),
-      deposit: b.deposit ?? null,
-      created_at: b.created_at,
-      listing_id: b.listing_id ?? null,
-      listing_title: l.title ?? null,
-      listing_city: l.city ?? null,
-      cover_url: firstPhoto.get(b.listing_id) ?? null,
-
-      // для владельца мне нужен арендатор
-      renter_id_for_chat: renter,
-      chat_id: b.chat_id ?? null,
-    };
-  });
-
-  return NextResponse.json({ rows });
+    return NextResponse.json({ rows });
+  } catch (e: any) {
+    return NextResponse.json({ error: e?.message || 'load_failed' }, { status: 500 });
+  }
 }
