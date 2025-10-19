@@ -107,7 +107,7 @@ export default function OwnerRequestsPage() {
                     ) : (r.listing_id && r.renter_id_for_chat) ? (
                       <OpenChatButton
                         listingId={r.listing_id}
-                        otherUserId={r.renter_id_for_chat}
+                        otherId={r.renter_id_for_chat!}
                         label="Открыть чат"
                       />
                     ) : null}
