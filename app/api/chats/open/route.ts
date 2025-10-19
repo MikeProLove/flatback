@@ -14,83 +14,83 @@ export async function POST(req: Request) {
 
     const body = await req.json().catch(() => ({}));
     const listingId: string | undefined = body?.listingId;
-    const otherId: string | undefined =
-      body?.otherId ?? body?.participantId ?? body?.renterId;
+    // second party is optional — we'll resolve to listing owner if missing
+    let otherId: string | undefined = body?.otherId;
 
     if (!listingId) {
-      return NextResponse.json(
-        { error: 'bad_request', message: 'listingId обязателен' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'bad_request', message: 'listingId обязателен' }, { status: 400 });
     }
 
     const sb = getSupabaseAdmin();
 
-    // найдём владельца объявления
-    const { data: L, error: Lerr } = await sb
+    // 1) узнаём владельца объявления (owner чата)
+    const { data: L, error: le } = await sb
       .from('listings')
       .select('id, owner_id, user_id')
       .eq('id', listingId)
       .maybeSingle();
 
-    if (Lerr || !L) {
-      return NextResponse.json({ error: 'not_found' }, { status: 404 });
+    if (le || !L) {
+      return NextResponse.json({ error: 'not_found', message: 'Объявление не найдено' }, { status: 404 });
     }
 
-    const listingOwner = L.owner_id || L.user_id;
-    if (!listingOwner) {
+    const listingOwner: string | null = L.owner_id || L.user_id || null;
+
+    // если otherId не передали — чатом становитесь вы (покупатель) и владелец объявления
+    if (!otherId) {
+      if (!listingOwner) {
+        return NextResponse.json({ error: 'db_error', message: 'У объявления нет владельца' }, { status: 500 });
+      }
+      // если текущий пользователь и есть владелец — открывать чат нельзя
+      otherId = listingOwner;
+    }
+
+    // 2) запрет "сам с собой"
+    if (otherId === userId) {
       return NextResponse.json(
-        { error: 'bad_listing', message: 'у объявления нет владельца' },
+        { error: 'chats_no_self', message: 'Нельзя открыть чат с самим собой' },
         { status: 400 }
       );
     }
 
-    // участники
-    const chatOwner = listingOwner;
-    let participant = otherId ?? (userId === listingOwner ? undefined : listingOwner);
+    // 3) владелец чата — именно владелец объявления; второй участник — текущий пользователь, если он не владелец
+    const ownerId = listingOwner === userId ? userId : listingOwner;
+    const participantId = listingOwner === userId ? otherId : userId;
 
-    // запретим чат с самим собой/неопределённого собеседника
-    if (!participant || participant === userId) {
-      return NextResponse.json(
-        { error: 'self_chat', message: 'Нельзя открыть чат с самим собой' },
-        { status: 400 }
-      );
+    if (!ownerId || !participantId) {
+      return NextResponse.json({ error: 'bad_request', message: 'Не определены участники' }, { status: 400 });
     }
 
-    // есть ли уже чат?
+    // 4) ищем уже существующий чат
     const existing = await sb
       .from('chats')
       .select('id')
       .eq('listing_id', listingId)
-      .eq('owner_id', chatOwner)
-      .eq('participant_id', participant)
+      .eq('owner_id', ownerId)
+      .eq('participant_id', participantId)
       .maybeSingle();
 
-    if (existing.data) return NextResponse.json({ id: existing.data.id });
+    if (existing.data?.id) {
+      return NextResponse.json({ id: existing.data.id });
+    }
 
-    // создаём
+    // 5) создаём
     const ins = await sb
       .from('chats')
       .insert({
         listing_id: listingId,
-        owner_id: chatOwner,
-        participant_id: participant,
+        owner_id: ownerId,
+        participant_id: participantId,
       })
       .select('id')
       .single();
 
     if (ins.error) {
-      return NextResponse.json(
-        { error: 'db_error', message: ins.error.message },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: 'db_error', message: ins.error.message }, { status: 500 });
     }
 
     return NextResponse.json({ id: ins.data.id });
   } catch (e: any) {
-    return NextResponse.json(
-      { error: 'server_error', message: e?.message || 'internal' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'server_error', message: e?.message || 'internal' }, { status: 500 });
   }
 }
