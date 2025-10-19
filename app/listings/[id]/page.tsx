@@ -5,11 +5,14 @@ export const revalidate = 0;
 import { notFound } from 'next/navigation';
 import { auth } from '@clerk/nextjs/server';
 import { getSupabaseAdmin } from '@/lib/supabase-admin';
+
 import FavoriteToggle from './ui/FavoriteToggle';
 import BookWidget from './ui/BookWidget';
 import Amenities from './ui/Amenities';
 import PhotoLightbox from './ui/PhotoLightbox';
-import ChatOpenButton from './ui/ChatOpenButton';
+
+// ✅ новая универсальная кнопка открытия чата
+import OpenChatButton from '@/app/(components)/OpenChatButton';
 
 type ListingRow = {
   id: string;
@@ -135,7 +138,6 @@ export default async function ListingPage({ params }: { params: { id: string } }
 
   const photos = (photosRaw ?? []) as PhotoRow[];
   const images: string[] = photos.map((p) => p.url).filter((u): u is string => !!u);
-  const cover = images[0] ?? null;
 
   // 3) Избранное пользователя
   let isFavorite = false;
@@ -184,7 +186,7 @@ export default async function ListingPage({ params }: { params: { id: string } }
           <div className="rounded-2xl border p-4 space-y-2">
             <div className="text-xl font-semibold">
               {money(listing.price, listing.currency ?? 'RUB')}
-              {listing.deposit ? (
+              {typeof listing.deposit === 'number' ? (
                 <span className="text-sm text-muted-foreground ml-2">
                   · залог {money(listing.deposit, listing.currency ?? 'RUB')}
                 </span>
@@ -206,12 +208,13 @@ export default async function ListingPage({ params }: { params: { id: string } }
 
         {/* Правая колонка */}
         <div className="space-y-4">
-          {/* Кнопка чата — только не владельцу */}
+          {/* Кнопка чата — показываем только не владельцу и только залогиненным */}
           {!isOwner && userId ? (
             <div className="rounded-2xl border p-4">
-              <ChatOpenButton
-                ownerId={(listing.owner_id || listing.user_id)!}
+              <OpenChatButton
                 listingId={listing.id}
+                otherId={listing.owner_id || listing.user_id || undefined}
+                label="Открыть чат с владельцем"
               />
             </div>
           ) : null}
