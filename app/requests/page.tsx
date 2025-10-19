@@ -5,8 +5,8 @@ import OpenChatButton from '@/app/(components)/OpenChatButton';
 
 type Row = {
   id: string;
-  status: 'pending'|'approved'|'declined'|'cancelled';
-  payment_status: 'pending'|'paid'|'refunded';
+  status: 'pending' | 'approved' | 'declined' | 'cancelled';
+  payment_status: 'pending' | 'paid' | 'refunded';
   start_date: string | null;
   end_date: string | null;
   monthly_price: number;
@@ -17,6 +17,7 @@ type Row = {
   listing_city: string | null;
   cover_url: string | null;
   chat_id: string | null;
+  owner_id_for_chat: string | null;
 };
 
 function money(n?: number | null) {
@@ -24,9 +25,8 @@ function money(n?: number | null) {
   try { return new Intl.NumberFormat('ru-RU',{style:'currency',currency:'RUB',maximumFractionDigits:0}).format(v); }
   catch { return `${Math.round(v)} ₽`; }
 }
-const safeDate = (d: any) => {
-  const dt = new Date(String(d));
-  return Number.isFinite(+dt) ? dt.toLocaleDateString('ru-RU') : '—';
+const safeDate = (d:any) => {
+  const dt = new Date(String(d)); return Number.isFinite(+dt) ? dt.toLocaleDateString('ru-RU') : '—';
 };
 
 export default function MyRequestsPage() {
@@ -36,15 +36,12 @@ export default function MyRequestsPage() {
   useEffect(() => {
     (async () => {
       try {
-        setErr(null);
         const r = await fetch('/api/requests/mine', { cache: 'no-store' });
-        const ct = r.headers.get('content-type') || '';
-        const j = ct.includes('application/json') ? await r.json() : { error: await r.text() };
-        if (!r.ok) throw new Error(j?.message || j?.error || `HTTP ${r.status}`);
+        const j = await r.json();
+        if (!r.ok) throw new Error(j?.message || j?.error || 'load_failed');
         setRows(j.rows ?? []);
-      } catch (e: any) {
-        setErr(e?.message || 'Ошибка загрузки');
-        setRows([]);
+      } catch (e:any) {
+        setErr(e?.message || 'Ошибка загрузки'); setRows([]);
       }
     })();
   }, []);
@@ -63,14 +60,10 @@ export default function MyRequestsPage() {
         <div className="space-y-4">
           {rows.map((r) => (
             <div key={r.id} className="rounded-2xl border overflow-hidden">
-              <div className="grid grid-cols-[160px_1fr] gap-0">
+              <div className="grid grid-cols-[160px_1fr]">
                 <div className="bg-muted">
-                  {r.cover_url ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={r.cover_url} alt="" className="w-full h-full object-cover" />
-                  ) : null}
+                  {r.cover_url ? <img src={r.cover_url} alt="" className="w-full h-full object-cover" /> : null}
                 </div>
-
                 <div className="p-4 space-y-2">
                   <div className="flex items-start justify-between gap-2">
                     <div className="space-y-1">
@@ -80,7 +73,6 @@ export default function MyRequestsPage() {
                       <div className="text-sm text-muted-foreground">{r.listing_city ?? '—'}</div>
                       <div className="text-xs">{safeDate(r.start_date)} — {safeDate(r.end_date)}</div>
                     </div>
-
                     <div className="text-right text-sm">
                       <div className="font-semibold">{money(r.monthly_price)} / мес</div>
                       {r.deposit ? <div className="text-muted-foreground">Залог: {money(r.deposit)}</div> : null}
@@ -89,7 +81,8 @@ export default function MyRequestsPage() {
                           r.status === 'approved' ? 'text-green-600' :
                           r.status === 'declined' ? 'text-red-600' :
                           r.status === 'cancelled' ? 'text-gray-500' : 'text-yellow-600'
-                        }>{r.status}</span>{' · '}
+                        }>{r.status}</span>
+                        {' · '}
                         <span className={
                           r.payment_status === 'paid' ? 'text-green-600' :
                           r.payment_status === 'refunded' ? 'text-gray-600' : 'text-yellow-600'
@@ -100,13 +93,9 @@ export default function MyRequestsPage() {
 
                   <div className="pt-2 flex flex-wrap gap-8 items-center">
                     {r.chat_id ? (
-                      // ВАЖНО: единственное число
-                      <a href={`/chat/${r.chat_id}`} className="px-3 py-1 border rounded-md text-sm">
-                        Открыть чат
-                      </a>
+                      <a href={`/chat/${r.chat_id}`} className="px-3 py-1 border rounded-md text-sm">Открыть чат</a>
                     ) : r.listing_id ? (
-                      // otherUserId не обязателен: на сервере возьмём владельца объявления
-                      <OpenChatButton listingId={r.listing_id} label="Открыть чат" />
+                      <OpenChatButton listingId={r.listing_id} otherId={r.owner_id_for_chat || undefined} label="Открыть чат" />
                     ) : null}
                   </div>
                 </div>
