@@ -7,24 +7,31 @@ import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { getSupabaseAdmin } from '@/lib/supabase-admin';
 
-type RowOut = {
+type Row = {
   id: string;
-  status: 'pending'|'approved'|'declined'|'cancelled';
-  payment_status: 'pending'|'paid'|'refunded';
-  start_date: string|null;
-  end_date: string|null;
-  monthly_price: number|null;
-  deposit: number|null;
+  listing_id: string | null;
+  status: 'pending' | 'approved' | 'declined' | 'cancelled';
+  payment_status: 'pending' | 'paid' | 'refunded';
+  start_date: string | null;
+  end_date: string | null;
+  monthly_price: number | null;
+  deposit: number | null;
   created_at: string;
-  listing_id: string;
 
-  listing_title: string|null;
-  listing_city: string|null;
-  cover_url: string|null;
+  // для фронта
+  listing_title: string | null;
+  listing_city: string | null;
+  cover_url: string | null;
 
-  owner_id_for_chat: string|null; // собеседник = владелец объявления
-  chat_id: string|null;           // если чат уже есть
+  // чтобы открыть чат с владельцем
+  owner_id_for_chat: string | null;
+  chat_id: string | null;
 };
+
+function isMissingColumn(err?: { message?: string | null }) {
+  const m = err?.message || '';
+  return /column .* does not exist|relation .* does not exist/i.test(m);
+}
 
 export async function GET() {
   try {
@@ -33,97 +40,108 @@ export async function GET() {
 
     const sb = getSupabaseAdmin();
 
-    // 1) мои заявки (я = заявитель)
-    const q = await sb
-      .from('bookings_unified')
-      .select('id, listing_id, status, payment_status, start_date, end_date, monthly_price, deposit, created_at, owner_id')
-      .eq('renter_id', userId)
-      .order('created_at', { ascending: false });
+    // 1) Тянем брони пользователя (арендатора).
+    // Сначала пробуем через стабильную вьюху bookings_user_view (поле renter_id),
+    // если её/поля нет — падаем на bookings.user_id.
+    let bookings: any[] = [];
+    let q1 = await sb
+      .from('bookings_user_view' as any)
+      .select(
+        'id, listing_id, status, payment_status, start_date, end_date, monthly_price, deposit, created_at, renter_id'
+      )
+      .eq('renter_id', userId);
 
-    if (q.error) {
-      return NextResponse.json({ error: 'db_error', message: q.error.message }, { status: 500 });
+    if (q1.error && isMissingColumn(q1.error)) {
+      // fallback на сырую таблицу/вьюху bookings c user_id
+      const q2 = await sb
+        .from('bookings' as any)
+        .select(
+          'id, listing_id, status, payment_status, start_date, end_date, monthly_price, deposit, created_at, user_id'
+        )
+        .eq('user_id', userId);
+      if (q2.error) {
+        return NextResponse.json({ error: 'db_error', message: q2.error.message }, { status: 500 });
+      }
+      bookings = q2.data ?? [];
+    } else if (q1.error) {
+      return NextResponse.json({ error: 'db_error', message: q1.error.message }, { status: 500 });
+    } else {
+      bookings = q1.data ?? [];
     }
 
-    const rows = q.data ?? [];
+    if (!bookings.length) {
+      return NextResponse.json({ rows: [] as Row[] });
+    }
 
-    // собираем listing ids
-    const listingIds = Array.from(new Set(rows.map(r => r.listing_id).filter(Boolean)));
-
-    // 2) заголовок/город/owner для чата
-    const { data: listings } = await sb
-      .from('listings')
-      .select('id, title, city, owner_id, user_id')
-      .in('id', listingIds.length ? listingIds : ['-']); // чтобы не падало при пустом списке
-
-    const listingMap = new Map(
-      (listings ?? []).map(l => [
-        l.id,
-        {
-          title: l.title as string|null,
-          city: l.city as string|null,
-          ownerId: (l.owner_id || l.user_id) as string|null,
-        },
-      ])
+    // 2) Собираем id объявлений
+    const listingIds = Array.from(
+      new Set(
+        (bookings as any[])
+          .map((b) => b?.listing_id)
+          .filter((x): x is string => !!x)
+      )
     );
 
-    // 3) обложки
-    const { data: photos } = await sb
-      .from('listing_photos')
-      .select('listing_id, url, sort_order')
-      .in('listing_id', listingIds.length ? listingIds : ['-'])
-      .order('sort_order', { ascending: true });
+    // 3) Информация по объявлениям (title/city/owner + первая фотка)
+    const [listingsRes, photosRes] = await Promise.all([
+      sb
+        .from('listings' as any)
+        .select('id, title, city, owner_id, user_id')
+        .in('id', listingIds),
+      sb
+        .from('listing_photos' as any)
+        .select('listing_id, url, sort_order')
+        .in('listing_id', listingIds)
+        .order('sort_order', { ascending: true }),
+    ]);
 
-    const coverMap = new Map<string, string>();
-    for (const p of photos ?? []) {
-      if (!coverMap.has(p.listing_id) && p.url) coverMap.set(p.listing_id, p.url);
-    }
+    const listings = (listingsRes.data ?? []) as any[];
+    const photos = (photosRes.data ?? []) as any[];
 
-    // 4) (опционально) найдём уже существующие чаты для пар (listing_id, owner, renter)
-    const chatPairs = rows.map(r => ({
-      listing_id: r.listing_id,
-      owner_id: (listingMap.get(r.listing_id)?.ownerId ?? r.owner_id) as string | null,
-      participant_id: userId,
-    })).filter(p => p.listing_id && p.owner_id) as { listing_id: string, owner_id: string, participant_id: string }[];
+    const listingById = new Map<string, any>();
+    for (const l of listings) listingById.set(l.id, l);
 
-    let existingChats = new Map<string, string>();
-    if (chatPairs.length) {
-      // разом вытянуть сложно, обойдёмся по listing_id, а id соберём в Map key = `${listing_id}:${owner_id}:${participant_id}`
-      const { data: chats } = await sb
-        .from('chats')
-        .select('id, listing_id, owner_id, participant_id')
-        .in('listing_id', Array.from(new Set(chatPairs.map(p => p.listing_id))));
-
-      for (const c of chats ?? []) {
-        const key = `${c.listing_id}:${c.owner_id}:${c.participant_id}`;
-        existingChats.set(key, c.id);
+    const coverByListing = new Map<string, string>();
+    for (const p of photos) {
+      const lid = p?.listing_id as string | undefined;
+      if (lid && !coverByListing.has(lid) && p?.url) {
+        coverByListing.set(lid, p.url as string);
       }
     }
 
-    // 5) собираем отдачу
-    const out: RowOut[] = rows.map(r => {
-      const lm = listingMap.get(r.listing_id);
-      const ownerId = lm?.ownerId || r.owner_id || null;
-      const chatKey = ownerId ? `${r.listing_id}:${ownerId}:${userId}` : '';
+    // 4) Сборка ответа
+    const rows: Row[] = (bookings as any[]).map((b) => {
+      const l = b?.listing_id ? listingById.get(b.listing_id) : null;
+      const owner = l?.owner_id || l?.user_id || null;
+
       return {
-        id: r.id,
-        status: r.status as any,
-        payment_status: r.payment_status as any,
-        start_date: r.start_date,
-        end_date: r.end_date,
-        monthly_price: r.monthly_price,
-        deposit: r.deposit,
-        created_at: r.created_at,
-        listing_id: r.listing_id,
-        listing_title: lm?.title ?? null,
-        listing_city: lm?.city ?? null,
-        cover_url: coverMap.get(r.listing_id) ?? null,
-        owner_id_for_chat: ownerId,
-        chat_id: chatKey ? (existingChats.get(chatKey) ?? null) : null,
+        id: String(b.id),
+        listing_id: b.listing_id ?? null,
+        status: (b.status || 'pending') as Row['status'],
+        payment_status: (b.payment_status || 'pending') as Row['payment_status'],
+        start_date: b.start_date ?? null,
+        end_date: b.end_date ?? null,
+        monthly_price: typeof b.monthly_price === 'number' ? b.monthly_price : null,
+        deposit: typeof b.deposit === 'number' ? b.deposit : null,
+        created_at: b.created_at ?? new Date().toISOString(),
+
+        listing_title: l?.title ?? null,
+        listing_city: l?.city ?? null,
+        cover_url: b.listing_id ? coverByListing.get(b.listing_id) ?? null : null,
+
+        owner_id_for_chat: owner ?? null,
+        chat_id: null, // если чат уже создан и вы храните chat_id у booking — сюда можно подставить
       };
     });
 
-    return NextResponse.json({ rows: out });
+    // Сортировка по дате создания убыв.
+    rows.sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
+
+    return NextResponse.json({ rows });
   } catch (e: any) {
-    return NextResponse.json({ error: 'server_error', message: e?.message || 'internal' }, { status: 500 });
+    return NextResponse.json(
+      { error: 'server_error', message: e?.message || 'internal' },
+      { status: 500 }
+    );
   }
 }
