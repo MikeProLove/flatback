@@ -1,11 +1,15 @@
 'use client';
 
+import { useAuth } from '@clerk/nextjs';
 import { useEffect, useRef, useState } from 'react';
 
 type Msg = { id: string; created_at: string; sender_id: string; body: string };
+type Chat = { id: string; owner_id: string; participant_id: string };
 
 export default function ChatPage({ params }: { params: { id: string } }) {
-  const [rows, setRows] = useState<Msg[] | null>(null);
+  const { userId } = useAuth();
+  const [chat, setChat] = useState<Chat | null>(null);
+  const [rows, setRows] = useState<Msg[]>([]);
   const [err, setErr] = useState<string | null>(null);
   const [text, setText] = useState('');
   const tailRef = useRef<HTMLDivElement | null>(null);
@@ -14,22 +18,24 @@ export default function ChatPage({ params }: { params: { id: string } }) {
     try {
       setErr(null);
       const res = await fetch(`/api/chats/${params.id}/messages`, { cache: 'no-store' });
-      const ct = res.headers.get('content-type') || '';
-      if (!ct.includes('application/json')) {
-        const t = await res.text();
-        throw new Error(t || `HTTP ${res.status}`);
-      }
       const j = await res.json();
-      if (!res.ok) throw new Error(j?.error || 'load_failed');
+      if (!res.ok) throw new Error(j?.message || j?.error || 'load_failed');
+      setChat(j.chat);
       setRows(j.messages || []);
       setTimeout(() => tailRef.current?.scrollIntoView({ block: 'end' }), 0);
     } catch (e: any) {
       setErr(e?.message || 'Ошибка загрузки');
-      setRows([]);
     }
   }
 
-  useEffect(() => { load(); }, [params.id]);
+  // первичная загрузка
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [params.id]);
+
+  // автообновление раз в 3 сек
+  useEffect(() => {
+    const t = setInterval(load, 3000);
+    return () => clearInterval(t);
+  }, [params.id]);
 
   async function send() {
     const body = text.trim();
@@ -48,26 +54,41 @@ export default function ChatPage({ params }: { params: { id: string } }) {
     await load();
   }
 
+  const you = userId;
+
   return (
     <div className="mx-auto max-w-3xl px-4 py-8 space-y-4">
       <h1 className="text-2xl font-semibold">Чат</h1>
 
-      <div className="rounded-2xl border p-0 overflow-hidden">
-        <div className="border-b px-4 py-2 text-sm text-muted-foreground">Чат по заявке</div>
+      <div className="rounded-2xl border overflow-hidden">
+        <div className="border-b px-4 py-2 text-sm text-muted-foreground">
+          Чат по заявке
+        </div>
 
         <div className="p-4 space-y-3" style={{ minHeight: 320, maxHeight: 520, overflowY: 'auto' }}>
           {err && <div className="text-red-600 text-sm">{err}</div>}
-          {rows === null && <div className="text-sm text-muted-foreground">Загружаем…</div>}
-          {(rows ?? []).map((m) => (
-            <div key={m.id} className="text-sm">
-              <div className="text-[11px] text-muted-foreground">
-                {new Date(m.created_at).toLocaleString('ru-RU')}
+          {!err && rows.length === 0 && (
+            <div className="text-sm text-muted-foreground">Пока сообщений нет.</div>
+          )}
+
+          {rows.map((m) => {
+            const mine = m.sender_id === you;
+            return (
+              <div key={m.id} className={`flex ${mine ? 'justify-end' : 'justify-start'}`}>
+                <div
+                  className={`max-w-[80%] rounded-2xl px-3 py-2 text-sm ${
+                    mine ? 'bg-gray-900 text-white' : 'bg-gray-100'
+                  }`}
+                >
+                  <div className="text-[11px] opacity-70 mb-0.5">
+                    {mine ? 'Вы' : 'Собеседник'} ·{' '}
+                    {new Date(m.created_at).toLocaleString('ru-RU')}
+                  </div>
+                  <div className="whitespace-pre-wrap break-words">{m.body}</div>
+                </div>
               </div>
-              <div className="rounded-lg border inline-block px-3 py-2">
-                {m.body}
-              </div>
-            </div>
-          ))}
+            );
+          })}
           <div ref={tailRef} />
         </div>
 
