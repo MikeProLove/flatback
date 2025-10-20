@@ -4,7 +4,7 @@ export const revalidate = 0;
 
 import Link from 'next/link';
 import OpenChatButton from '@/components/OpenChatButton';
-import { apiFetch } from '@/lib/absolute-url';
+import { serverFetch } from '@/lib/absolute-url';
 
 type Item = {
   id: string;
@@ -19,8 +19,8 @@ type Item = {
   status?: string | null;
   payment_status?: string | null;
   chat_id?: string | null;
-  chat_path?: string | null; // если API уже отдаёт путь
-  other_id?: string | null;  // второй участник, если есть
+  chat_path?: string | null;
+  other_id?: string | null;
 };
 
 function fmtDate(s?: string | null) {
@@ -34,7 +34,7 @@ export default async function Page() {
   let errorMsg: string | null = null;
 
   try {
-    const res = await apiFetch('/api/requests/mine');
+    const res = await serverFetch('/api/requests/mine');
     if (!res.ok) {
       const text = await res.text().catch(() => '');
       errorMsg = `HTTP ${res.status}${text ? ` — ${text}` : ''}`;
@@ -70,6 +70,7 @@ export default async function Page() {
             <div key={it.id} className="rounded-2xl border p-4 flex gap-4">
               <div className="w-40 h-28 shrink-0 overflow-hidden rounded-lg bg-gray-100">
                 {it.cover_url ? (
+                  // eslint-disable-next-line @next/next/no-img-element
                   <img
                     src={it.cover_url}
                     alt={it.title ?? 'Фото'}
