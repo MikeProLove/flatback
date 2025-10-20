@@ -4,7 +4,8 @@ import { ClerkProvider } from '@clerk/nextjs';
 import './globals.css';
 import 'maplibre-gl/dist/maplibre-gl.css';
 
-import HeaderNav from './(components)/HeaderNav';
+import SiteHeader from './_components/SiteHeader';
+import MobileTabBar from './_components/MobileTabBar';
 
 export const metadata: Metadata = {
   title: 'Flatback',
@@ -16,10 +17,14 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <ClerkProvider>
       <html lang="ru">
         <body>
-          <header className="border-b">
-            <HeaderNav />
-          </header>
-          <main>{children}</main>
+          {/* Шапка с бургер-меню и подсветкой активного пункта */}
+          <SiteHeader />
+
+          {/* Отступ снизу под фиксированный таббар на мобилках */}
+          <main className="pb-16 md:pb-0">{children}</main>
+
+          {/* Нижняя навигация: видна только на мобильных */}
+          <MobileTabBar />
         </body>
       </html>
     </ClerkProvider>
