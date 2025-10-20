@@ -7,6 +7,40 @@ import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { getSupabaseAdmin } from '@/lib/supabase-admin';
 
+type BookingRow = {
+  id: string;
+  listing_id: string | null;
+  status: string | null;
+  payment_status: string | null;
+  start_date: string | null;
+  end_date: string | null;
+  monthly_price: number | null;
+  deposit: number | null;
+  created_at: string;
+  user_id: string | null; // заявитель (арендатор)
+};
+
+type ListingRow = {
+  id: string;
+  title: string | null;
+  city: string | null;
+  owner_id: string | null;
+  user_id: string | null;
+};
+
+type PhotoRow = {
+  listing_id: string;
+  url: string | null;
+  sort_order: number | null;
+};
+
+type ChatRow = {
+  id: string;
+  listing_id: string | null;
+  owner_id: string | null;
+  participant_id: string | null;
+};
+
 export async function GET() {
   try {
     const { userId } = auth();
@@ -14,83 +48,97 @@ export async function GET() {
 
     const sb = getSupabaseAdmin();
 
-    // 1) какие объявления мои
-    const L = await sb
+    // 1) Мои объявления (я — владелец)
+    const myListingsResp = await sb
       .from('listings')
-      .select('id')
+      .select('id, owner_id, user_id')
       .or(`owner_id.eq.${userId},user_id.eq.${userId}`);
-    const myListingIds: string[] = (L.data || []).map((x: any) => x.id);
-    if (myListingIds.length === 0) return NextResponse.json({ items: [] });
+    const myListings: ListingRow[] = (myListingsResp.data ?? []) as any;
 
-    // 2) заявки по этим объявлениям
-    async function loadFrom(table: 'bookings' | 'bookings_base') {
-      return sb
+    const listingIds = myListings.map((l) => l.id).filter(Boolean);
+    if (listingIds.length === 0) {
+      return NextResponse.json({ items: [] });
+    }
+
+    // 2) Заявки по этим объявлениям (bookings → bookings_base фоллбэк)
+    const loadFrom = async (table: 'bookings' | 'bookings_base') =>
+      sb
         .from(table)
-        .select('id, listing_id, status, payment_status, start_date, end_date, monthly_price, deposit, created_at, user_id')
-        .in('listing_id', myListingIds)
+        .select(
+          'id, listing_id, status, payment_status, start_date, end_date, monthly_price, deposit, created_at, user_id'
+        )
+        .in('listing_id', listingIds)
         .order('created_at', { ascending: false });
-    }
-    let resp = await loadFrom('bookings');
-    if (resp.error && /relation .*bookings.* does not exist/i.test(resp.error.message)) {
-      resp = await loadFrom('bookings_base');
-    }
-    if (resp.error) {
-      return NextResponse.json({ error: resp.error.message }, { status: 500 });
-    }
-    const rows = resp.data || [];
 
-    // 3) инфо по объявлениям
-    let listingMap = new Map<string, { title: string | null; city: string | null; owner: string | null; user: string | null }>();
-    {
-      const L2 = await sb
-        .from('listings')
-        .select('id, title, city, owner_id, user_id')
-        .in('id', myListingIds);
-      (L2.data || []).forEach((x: any) =>
-        listingMap.set(x.id, { title: x.title ?? null, city: x.city ?? null, owner: x.owner_id ?? null, user: x.user_id ?? null })
-      );
+    let bookingsQ = await loadFrom('bookings');
+    if (bookingsQ.error && /relation .*bookings.* does not exist/i.test(bookingsQ.error.message)) {
+      bookingsQ = await loadFrom('bookings_base');
+    }
+    const bookings: BookingRow[] = (bookingsQ.data ?? []) as any;
+
+    if (bookings.length === 0) {
+      return NextResponse.json({ items: [] });
     }
 
-    // 4) обложки
+    // 3) Справочники: инфо по объявлениям и обложки
+    const infoQ = await sb
+      .from('listings')
+      .select('id, title, city, owner_id, user_id')
+      .in('id', listingIds);
+    const listingInfo: ListingRow[] = (infoQ.data ?? []) as any;
+    const infoMap = new Map<string, ListingRow>();
+    for (const li of listingInfo) infoMap.set(li.id, li);
+
+    // cover_url: попробуем через listing_photos (если есть таблица)
     let coverMap = new Map<string, string>();
-    {
-      const P = await sb
+    try {
+      const photosQ = await sb
         .from('listing_photos')
-        .select('listing_id, url, sort_order, id')
-        .in('listing_id', myListingIds)
-        .order('sort_order', { ascending: true })
-        .order('id', { ascending: true });
-      for (const p of P.data || []) {
-        const lid = p.listing_id as string;
-        if (!coverMap.has(lid) && p.url) coverMap.set(lid, p.url);
+        .select('listing_id, url, sort_order')
+        .in('listing_id', listingIds)
+        .order('sort_order', { ascending: true });
+      const photos: PhotoRow[] = (photosQ.data ?? []) as any;
+      for (const p of photos) {
+        if (!p.url) continue;
+        if (!coverMap.has(p.listing_id)) coverMap.set(p.listing_id, p.url);
+      }
+    } catch {
+      // если таблицы нет — просто оставим карты пустыми
+    }
+
+    // 4) Сопоставим существующие чаты (владелец = я, участник = заявитель)
+    const renterIds = Array.from(
+      new Set(bookings.map((b) => b.user_id).filter(Boolean) as string[])
+    );
+    let chatMap = new Map<string, string>(); // key: `${listing_id}:${participant_id}` -> chat_id
+    if (renterIds.length) {
+      const chatsQ = await sb
+        .from('chats')
+        .select('id, listing_id, owner_id, participant_id')
+        .eq('owner_id', userId)
+        .in('listing_id', listingIds)
+        .in('participant_id', renterIds);
+      const chats: ChatRow[] = (chatsQ.data ?? []) as any;
+      for (const ch of chats) {
+        const key = `${ch.listing_id}:${ch.participant_id}`;
+        if (ch.id) chatMap.set(key, ch.id);
       }
     }
 
-    // 5) chat_path для каждой заявки (владелец ↔ заявитель)
-    const items = [];
-    for (const b of rows) {
-      const linfo = listingMap.get(b.listing_id) || { title: null, city: null, owner: null, user: null };
-      const ownerId = (linfo.owner || linfo.user) as string | null;
-      const renterId = b.user_id as string | null;
+    // 5) Сбор результата
+    const items = bookings.map((b) => {
+      const info = b.listing_id ? infoMap.get(b.listing_id) : undefined;
+      const cover = b.listing_id ? coverMap.get(b.listing_id) ?? null : null;
+      const otherId = b.user_id || null; // арендатор (заявитель)
+      const chatId =
+        b.listing_id && otherId ? chatMap.get(`${b.listing_id}:${otherId}`) ?? null : null;
 
-      let chatId: string | null = null;
-      if (ownerId && renterId) {
-        const c = await sb
-          .from('chats')
-          .select('id')
-          .eq('listing_id', b.listing_id)
-          .eq('owner_id', ownerId)
-          .eq('participant_id', renterId)
-          .maybeSingle();
-        if (c.data?.id) chatId = c.data.id;
-      }
-
-      items.push({
+      return {
         id: b.id,
         listing_id: b.listing_id,
-        title: linfo.title,
-        city: linfo.city,
-        cover_url: coverMap.get(b.listing_id) || null,
+        title: info?.title ?? null,
+        city: info?.city ?? null,
+        cover_url: cover,
         start_date: b.start_date,
         end_date: b.end_date,
         monthly_price: b.monthly_price,
@@ -99,12 +147,15 @@ export async function GET() {
         payment_status: b.payment_status,
         chat_id: chatId,
         chat_path: chatId ? `/chat/${chatId}` : null,
-        other_id: renterId, // для кнопки «Открыть чат»
-      });
-    }
+        other_id: otherId,
+      };
+    });
 
     return NextResponse.json({ items });
   } catch (e: any) {
-    return NextResponse.json({ error: e?.message || 'internal' }, { status: 500 });
+    return NextResponse.json(
+      { error: 'server_error', message: e?.message || 'internal' },
+      { status: 500 }
+    );
   }
 }
